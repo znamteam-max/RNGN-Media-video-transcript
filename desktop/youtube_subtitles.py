@@ -30,8 +30,13 @@ class SubtitleTrack:
         return "вручную" if self.source == "manual" else "авто"
 
     @property
+    def is_original(self) -> bool:
+        return self.language_code.lower().endswith("-orig")
+
+    @property
     def label(self) -> str:
-        return f"{self.language_name} ({self.language_code}) — {self.source_label}"
+        original = " · оригинал" if self.is_original else ""
+        return f"{self.language_name} ({self.language_code}) — {self.source_label}{original}"
 
 
 @dataclass(frozen=True)
@@ -172,6 +177,7 @@ def tracks_from_info(info: dict) -> tuple[SubtitleTrack, ...]:
     preferred = {"ru": 0, "en": 1}
     tracks.sort(
         key=lambda track: (
+            0 if track.is_original else 1,
             0 if track.source == "manual" else 1,
             preferred.get(track.language_code.split("-")[0].lower(), 9),
             track.language_name.casefold(),
