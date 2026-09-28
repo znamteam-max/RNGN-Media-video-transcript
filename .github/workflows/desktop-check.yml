@@ -19,7 +19,7 @@ jobs:
         with:
           python-version: '3.11'
       - name: Syntax check
-        run: python -m py_compile desktop/app.py desktop/downloader.py desktop/platforms.py desktop/transcriber.py desktop/test_core.py
+        run: python -m py_compile desktop/app.py desktop/downloader.py desktop/platforms.py desktop/transcriber.py desktop/youtube_subtitles.py desktop/test_core.py
       - name: Core unit tests
         working-directory: desktop
         run: python test_core.py
