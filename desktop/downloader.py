@@ -5,6 +5,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -38,7 +39,10 @@ def _candidate_roots(app_root: Path) -> Iterable[Path]:
 
 
 def resolve_tools(app_root: Path | None = None) -> Toolset:
-    root = app_root or Path(__file__).resolve().parent
+    if getattr(sys, "frozen", False):
+        root = Path(sys.executable).resolve().parent
+    else:
+        root = app_root or Path(__file__).resolve().parent
     for candidate in _candidate_roots(root):
         yt = candidate / "yt-dlp.exe"
         gal = candidate / "gallery-dl.exe"
