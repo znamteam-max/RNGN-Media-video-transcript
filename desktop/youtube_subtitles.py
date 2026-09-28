@@ -26,6 +26,8 @@ _REQUEST_HEADERS = {
         "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137 Safari/537.36"
     ),
     "Accept-Language": "en-US,en;q=0.9",
+    "Referer": "https://www.youtube.com/",
+    "Origin": "https://www.youtube.com",
 }
 
 
@@ -417,22 +419,189 @@ def _json3_to_srt(data: dict) -> str:
     return "\n\n".join(blocks).strip() + ("\n" if blocks else "")
 
 
-def _download_direct_track(track: SubtitleTrack, log: LogCallback) -> str:
-    parsed = urllib.parse.urlparse(track.base_url)
+def _caption_url(base_url: str, fmt: str) -> str:
+    parsed = urllib.parse.urlparse(base_url)
     params = urllib.parse.parse_qsl(parsed.query, keep_blank_values=True)
     params = [(key, value) for key, value in params if key != "fmt"]
-    params.append(("fmt", "json3"))
-    direct_url = urllib.parse.urlunparse(parsed._replace(query=urllib.parse.urlencode(params)))
-    log(f"Скачиваю оригинальную дорожку {track.language_code} напрямую с YouTube…")
-    request = urllib.request.Request(direct_url, headers=_REQUEST_HEADERS)
-    with urllib.request.urlopen(request, timeout=15) as response:
-        body = response.read().decode("utf-8", errors="replace")
-    data = json.loads(body)
-    srt = _json3_to_srt(data)
-    if not srt.strip():
-        raise RuntimeError("YouTube вернул пустую дорожку.")
-    return srt
+    if fmt:
+        params.append(("fmt", fmt))
+    params.extend(
+        [
+            ("c", "WEB"),
+            ("cver", "2.20260506.01.00"),
+            ("cplayer", "UNIPLAYER"),
+            ("cplatform", "DESKTOP"),
+            ("cbr", "Chrome"),
+            ("cbrver", "137.0.0.0"),
+            ("cos", "Windows"),
+            ("cosver", "10.0"),
+        ]
+    )
+    return urllib.parse.urlunparse(parsed._replace(query=urllib.parse.urlencode(params)))
 
+
+def _vtt_timestamp(value: str) -> str:
+    value = value.strip().replace(".", ",")
+    parts = value.split(":")
+    if len(parts) == 2:
+        value = "00:" + value
+    return value
+
+
+def _vtt_to_srt(vtt: str) -> str:
+    blocks: list[str] = []
+    index = 1
+    current_time = ""
+    current_text: list[str] = []
+
+    def flush() -> None:
+        nonlocal index, current_time, current_text
+        if current_time and current_text:
+            text = _clean_caption_text(" ".join(current_text))
+            if text:
+                blocks.append(f"{index}\n{current_time}\n{text}")
+                index += 1
+        current_time = ""
+        current_text = []
+
+    for raw in vtt.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("WEBVTT") or line.startswith("Kind:") or line.startswith("Language:"):
+            if not line:
+                flush()
+            continue
+        if "-->" in line:
+            flush()
+            left, right = [part.strip().split(" ", 1)[0] for part in line.split("-->", 1)]
+            current_time = f"{_vtt_timestamp(left)} --> {_vtt_timestamp(right)}"
+            continue
+        if current_time:
+            current_text.append(line)
+    flush()
+    return "\n\n".join(blocks).strip() + ("\n" if blocks else "")
+
+
+def _xml_to_srt(xml: str) -> str:
+    blocks: list[str] = []
+    index = 1
+
+    for match in re.finditer(
+        r'<text\b[^>]*start="([0-9.]+)"[^>]*dur="([0-9.]+)"[^>]*>(.*?)</text>',
+        xml,
+        flags=re.IGNORECASE | re.DOTALL,
+    ):
+        start_s = float(match.group(1))
+        duration_s = float(match.group(2))
+        text = _clean_caption_text(match.group(3))
+        if not text:
+            continue
+        start = int(start_s * 1000)
+        end = int((start_s + max(duration_s, 0.3)) * 1000)
+        blocks.append(f"{index}\n{_srt_timestamp(start)} --> {_srt_timestamp(end)}\n{text}")
+        index += 1
+
+    if blocks:
+        return "\n\n".join(blocks).strip() + "\n"
+
+    for match in re.finditer(
+        r'<p\b[^>]*\bt="([0-9]+)"[^>]*\bd="([0-9]+)"[^>]*>(.*?)</p>',
+        xml,
+        flags=re.IGNORECASE | re.DOTALL,
+    ):
+        start = int(match.group(1))
+        duration = int(match.group(2))
+        text = _clean_caption_text(match.group(3))
+        if not text:
+            continue
+        end = max(start + 300, start + duration)
+        blocks.append(f"{index}\n{_srt_timestamp(start)} --> {_srt_timestamp(end)}\n{text}")
+        index += 1
+
+    return "\n\n".join(blocks).strip() + ("\n" if blocks else "")
+
+
+def _download_direct_track(track: SubtitleTrack, log: LogCallback) -> str:
+    last_error: Exception | None = None
+    for fmt in ("json3", "vtt", ""):
+        try:
+            direct_url = _caption_url(track.base_url, fmt)
+            label = fmt or "xml"
+            log(f"Пробую оригинальную дорожку {track.language_code} напрямую · {label}…")
+            request = urllib.request.Request(direct_url, headers=_REQUEST_HEADERS)
+            with urllib.request.urlopen(request, timeout=15) as response:
+                body = response.read().decode("utf-8", errors="replace")
+
+            if not body.strip():
+                raise RuntimeError("YouTube вернул пустой ответ.")
+
+            if fmt == "json3":
+                srt = _json3_to_srt(json.loads(body))
+            elif fmt == "vtt" or body.lstrip().startswith("WEBVTT"):
+                srt = _vtt_to_srt(body)
+            else:
+                srt = _xml_to_srt(body)
+
+            if srt.strip():
+                return srt
+            raise RuntimeError("Дорожка получена, но текст не найден.")
+        except Exception as exc:
+            last_error = exc
+            log(f"Прямая дорожка {fmt or 'xml'} не сработала: {exc}")
+
+    if last_error:
+        raise last_error
+    raise RuntimeError("YouTube не отдал выбранную дорожку.")
+
+
+def _download_with_ytdlp_fallback(
+    url: str,
+    track: SubtitleTrack,
+    root: Path,
+    tools: Toolset,
+    log: LogCallback,
+) -> str:
+    attempts = [
+        ("web_embedded", ["--extractor-args", "youtube:player_client=web_embedded"]),
+        ("tv", ["--extractor-args", "youtube:player_client=tv"]),
+        ("default", []),
+    ]
+
+    with tempfile.TemporaryDirectory(prefix="rngn-youtube-subs-") as tmp:
+        job = Path(tmp)
+        source_flag = "--write-subs" if track.source == "manual" else "--write-auto-subs"
+
+        for attempt_name, extra_args in attempts:
+            for old in job.rglob("*"):
+                if old.is_file():
+                    old.unlink(missing_ok=True)
+
+            command = _common_ytdlp_args(tools, root) + extra_args + [
+                "--skip-download",
+                "--windows-filenames",
+                source_flag,
+                "--sub-langs",
+                track.language_code,
+                "--sub-format",
+                "vtt/srt/best",
+                "--convert-subs",
+                "srt",
+                "-o",
+                str(job / "%(title).150B [%(id)s].%(ext)s"),
+                url,
+            ]
+            log(f"Резервный способ yt-dlp · client={attempt_name}")
+            result = _run_capture(command, log, timeout_seconds=35)
+            srt_candidates = sorted(job.rglob("*.srt"))
+            if srt_candidates:
+                return srt_candidates[0].read_text(encoding="utf-8-sig", errors="replace")
+
+            if result.returncode == 0:
+                log("yt-dlp завершился без ошибки, но SRT не найден.")
+
+    raise RuntimeError(
+        "YouTube не отдал выбранную дорожку субтитров. "
+        "Для этого видео YouTube требует дополнительную авторизацию/PO token."
+    )
 
 def srt_to_text(srt_text: str) -> str:
     cue_texts: list[str] = []
@@ -499,29 +668,7 @@ def download_youtube_subtitle(
     if not srt_text:
         root = app_root or Path(__file__).resolve().parent
         tools = resolve_tools(root)
-        with tempfile.TemporaryDirectory(prefix="rngn-youtube-subs-") as tmp:
-            job = Path(tmp)
-            source_flag = "--write-subs" if track.source == "manual" else "--write-auto-subs"
-            command = _common_ytdlp_args(tools, root) + [
-                "--skip-download",
-                "--windows-filenames",
-                source_flag,
-                "--sub-langs",
-                track.language_code,
-                "--sub-format",
-                "vtt/srt/best",
-                "--convert-subs",
-                "srt",
-                "-o",
-                str(job / "%(title).150B [%(id)s].%(ext)s"),
-                url,
-            ]
-            result = _run_capture(command, log, timeout_seconds=35)
-            srt_candidates = sorted(job.rglob("*.srt"))
-            if not srt_candidates:
-                suffix = "" if result.returncode == 0 else f" Код yt-dlp: {result.returncode}."
-                raise RuntimeError(f"Не удалось получить выбранную дорожку субтитров.{suffix}")
-            srt_text = srt_candidates[0].read_text(encoding="utf-8-sig", errors="replace")
+        srt_text = _download_with_ytdlp_fallback(url, track, root, tools, log)
 
     progress(75)
     title = _safe_name(title_hint or "YouTube")
