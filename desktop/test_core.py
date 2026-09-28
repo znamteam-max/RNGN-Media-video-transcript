@@ -110,15 +110,25 @@ class YoutubeSubtitleTests(unittest.TestCase):
 
 class DownloaderQualityTests(unittest.TestCase):
     def test_quality_limit_is_applied(self) -> None:
-        selector = _format_selector("1080p")
+        selector = _format_selector("1080p — MP4 H.264 + AAC")
         self.assertIn("height<=1080", selector)
 
     def test_best_quality_has_no_height_cap(self) -> None:
-        selector = _format_selector("Лучшее доступное")
+        selector = _format_selector("Лучшее доступное — MP4 H.264 + AAC")
         self.assertNotIn("height<=", selector)
+
+    def test_quality_labels_include_final_codec(self) -> None:
+        from downloader import QUALITY_OPTIONS
+        self.assertEqual(QUALITY_OPTIONS[0], "1080p — MP4 H.264 + AAC")
+        self.assertTrue(all("H.264 + AAC" in item for item in QUALITY_OPTIONS))
 
 
 class UiHelpersTests(unittest.TestCase):
+    def test_cyrillic_ctrl_v_keycode(self) -> None:
+        from app import is_paste_shortcut
+        self.assertTrue(is_paste_shortcut(86, "Cyrillic_em"))
+        self.assertTrue(is_paste_shortcut(86, "v"))
+
     def test_clean_pasted_url(self) -> None:
         self.assertEqual(
             clean_pasted_url("  https://www.youtube.com/watch?v=abc&t=10s\n"),
