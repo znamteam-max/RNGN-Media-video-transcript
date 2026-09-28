@@ -21,17 +21,6 @@ LogCallback = Callable[[str], None]
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".mkv", ".webm", ".m4v", ".ts"}
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".avif"}
 
-QUALITY_OPTIONS = (
-    "1080p — MP4 H.264 + AAC",
-    "2160p — MP4 H.264 + AAC",
-    "1440p — MP4 H.264 + AAC",
-    "720p — MP4 H.264 + AAC",
-    "480p — MP4 H.264 + AAC",
-    "360p — MP4 H.264 + AAC",
-    "Лучшее доступное — MP4 H.264 + AAC",
-)
-QUALITY_HEIGHTS = {"2160p": 2160, "1440p": 1440, "1080p": 1080, "720p": 720, "480p": 480, "360p": 360}
-
 
 @dataclass(frozen=True)
 class Toolset:
@@ -40,6 +29,23 @@ class Toolset:
     ffmpeg: Path
     ffprobe: Path
     deno: Path | None = None
+
+
+@dataclass(frozen=True)
+class QualityChoice:
+    label: str
+    height: int | None
+    source_video_codec: str
+    source_audio_codec: str
+    direct_premiere: bool
+
+
+@dataclass(frozen=True)
+class MediaAnalysis:
+    platform: str
+    title: str
+    choices: tuple[QualityChoice, ...]
+    default_label: str
 
 
 def _candidate_roots(app_root: Path) -> Iterable[Path]:
@@ -69,6 +75,10 @@ def resolve_tools(app_root: Path | None = None) -> Toolset:
     )
 
 
+def _creation_flags() -> int:
+    return getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
+
 def _run_streaming(
     command: list[str],
     *,
@@ -78,7 +88,6 @@ def _run_streaming(
     cwd: Path | None = None,
 ) -> int:
     log("$ " + subprocess.list2cmdline(command))
-    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     process = subprocess.Popen(
         command,
         cwd=str(cwd) if cwd else None,
@@ -87,7 +96,7 @@ def _run_streaming(
         text=True,
         encoding="utf-8",
         errors="replace",
-        creationflags=flags,
+        creationflags=_creation_flags(),
     )
     percent_re = re.compile(r"(?:\[download\]\s+)?([0-9]{1,3}(?:\.[0-9]+)?)%")
     assert process.stdout is not None
@@ -108,32 +117,249 @@ def _run_streaming(
 
 
 def _cookies_args(app_root: Path) -> list[str]:
-    for p in (app_root / "cookies.txt", app_root.parent / "cookies.txt"):
-        if p.is_file():
-            return ["--cookies", str(p)]
+    candidates = [app_root / "cookies.txt", app_root.parent / "cookies.txt"]
+    local = os.environ.get("LOCALAPPDATA")
+    if local:
+        candidates.append(Path(local) / "MediaDownloaderPremiere" / "cookies.txt")
+    for path in candidates:
+        if path.is_file():
+            return ["--cookies", str(path)]
     return []
 
 
-def _quality_key(quality: str) -> str:
-    value = (quality or "").strip()
-    for key in QUALITY_HEIGHTS:
-        if value.startswith(key):
-            return key
-    if value.startswith("Лучшее доступное"):
-        return "Лучшее доступное"
-    return value
+def _common_ytdlp_args(tools: Toolset, app_root: Path) -> list[str]:
+    args = [
+        str(tools.yt_dlp),
+        "--ignore-config",
+        "--no-color",
+        "--no-playlist",
+        "--ffmpeg-location",
+        str(tools.ffmpeg.parent),
+    ]
+    if tools.deno:
+        args += ["--js-runtimes", f"deno:{tools.deno}"]
+    args += _cookies_args(app_root)
+    return args
+
+
+def _parse_json_output(output: str) -> dict:
+    text = output.strip()
+    if not text:
+        raise RuntimeError("yt-dlp не вернул данные о видео.")
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        for line in reversed(text.splitlines()):
+            line = line.strip()
+            if not line.startswith("{"):
+                continue
+            try:
+                return json.loads(line)
+            except json.JSONDecodeError:
+                continue
+    raise RuntimeError("Не удалось разобрать данные о видео.")
+
+
+def _codec_family(codec: str | None, *, audio: bool = False) -> str:
+    value = (codec or "").lower()
+    if not value or value == "none":
+        return "без аудио" if audio else "неизвестно"
+    if value.startswith("avc1") or value == "h264":
+        return "H.264"
+    if value.startswith("vp09") or value.startswith("vp9"):
+        return "VP9"
+    if value.startswith("av01") or value.startswith("av1"):
+        return "AV1"
+    if value.startswith("hev1") or value.startswith("hvc1") or value.startswith("hevc"):
+        return "HEVC"
+    if value.startswith("mp4a") or value.startswith("aac"):
+        return "AAC"
+    if value.startswith("opus"):
+        return "Opus"
+    if value.startswith("vorbis"):
+        return "Vorbis"
+    return codec or ("аудио" if audio else "видео")
+
+
+def _best_codec_name(formats: list[dict], *, audio: bool = False) -> str:
+    key = "acodec" if audio else "vcodec"
+    candidates = [item for item in formats if str(item.get(key) or "none") != "none"]
+    if not candidates:
+        return "без аудио" if audio else "неизвестно"
+    candidates.sort(
+        key=lambda item: (
+            float(item.get("tbr") or 0),
+            float(item.get("abr") or 0),
+            float(item.get("vbr") or 0),
+        ),
+        reverse=True,
+    )
+    return _codec_family(str(candidates[0].get(key) or ""), audio=audio)
+
+
+def _h264_available(formats: list[dict]) -> bool:
+    return any(
+        _codec_family(str(item.get("vcodec") or "")) == "H.264"
+        for item in formats
+        if str(item.get("vcodec") or "none") != "none"
+    )
+
+
+def _aac_available(formats: list[dict]) -> bool:
+    return any(
+        _codec_family(str(item.get("acodec") or ""), audio=True) == "AAC"
+        for item in formats
+        if str(item.get("acodec") or "none") != "none"
+    )
+
+
+def _choice_label(height: int | None, video_codec: str, audio_codec: str, direct: bool) -> str:
+    prefix = f"{height}p" if height else "Лучшее доступное"
+    if direct:
+        return f"{prefix} — MP4 H.264 + AAC"
+    return f"{prefix} — {video_codec} + {audio_codec} → MP4 H.264 + AAC"
+
+
+def quality_choices_from_info(info: dict) -> tuple[QualityChoice, ...]:
+    formats = [item for item in (info.get("formats") or []) if isinstance(item, dict)]
+    audio_formats = [
+        item
+        for item in formats
+        if str(item.get("acodec") or "none") != "none"
+        and str(item.get("vcodec") or "none") == "none"
+    ]
+    if not audio_formats:
+        audio_formats = [item for item in formats if str(item.get("acodec") or "none") != "none"]
+
+    aac_any = _aac_available(audio_formats)
+    fallback_audio = "AAC" if aac_any else _best_codec_name(audio_formats, audio=True)
+
+    heights = sorted(
+        {
+            int(item["height"])
+            for item in formats
+            if item.get("height")
+            and str(item.get("vcodec") or "none") != "none"
+            and int(item["height"]) > 0
+        },
+        reverse=True,
+    )
+
+    choices: list[QualityChoice] = []
+    for height in heights:
+        video_formats = [
+            item
+            for item in formats
+            if int(item.get("height") or 0) == height
+            and str(item.get("vcodec") or "none") != "none"
+        ]
+        h264 = _h264_available(video_formats)
+        source_video = "H.264" if h264 else _best_codec_name(video_formats)
+        direct = h264 and aac_any
+        label = _choice_label(height, source_video, fallback_audio, direct)
+        choices.append(QualityChoice(label, height, source_video, fallback_audio, direct))
+
+    if choices:
+        return tuple(choices)
+
+    video_formats = [item for item in formats if str(item.get("vcodec") or "none") != "none"]
+    source_video = "H.264" if _h264_available(video_formats) else _best_codec_name(video_formats)
+    direct = _h264_available(video_formats) and aac_any
+    return (
+        QualityChoice(
+            _choice_label(None, source_video, fallback_audio, direct),
+            None,
+            source_video,
+            fallback_audio,
+            direct,
+        ),
+    )
+
+
+def _default_quality_label(choices: tuple[QualityChoice, ...]) -> str:
+    exact = next((choice.label for choice in choices if choice.height == 1080), None)
+    if exact:
+        return exact
+    lower = [choice for choice in choices if choice.height is not None and choice.height < 1080]
+    if lower:
+        return max(lower, key=lambda choice: choice.height or 0).label
+    higher = [choice for choice in choices if choice.height is not None]
+    if higher:
+        return min(higher, key=lambda choice: choice.height or 99999).label
+    return choices[0].label
+
+
+def analyze_media(
+    url: str,
+    *,
+    app_root: Path | None = None,
+    status: StatusCallback = lambda _s: None,
+    progress: ProgressCallback = lambda _p: None,
+    log: LogCallback = lambda _s: None,
+    timeout_seconds: int = 30,
+) -> MediaAnalysis:
+    url = url.strip()
+    if not url:
+        raise ValueError("Вставь ссылку.")
+
+    root = app_root or Path(__file__).resolve().parent
+    tools = resolve_tools(root)
+    platform = detect_platform(url)
+    status("Проверяю реальные варианты качества…")
+    progress(8)
+
+    command = _common_ytdlp_args(tools, root) + [
+        "--skip-download",
+        "--dump-single-json",
+        url,
+    ]
+    log("$ " + subprocess.list2cmdline(command))
+    try:
+        result = subprocess.run(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            creationflags=_creation_flags(),
+            timeout=timeout_seconds,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError("Анализ качества занял слишком долго. Повтори попытку.") from exc
+
+    if result.stderr.strip():
+        for line in result.stderr.splitlines():
+            if line.strip():
+                log(line.rstrip())
+
+    info = _parse_json_output(result.stdout)
+    choices = quality_choices_from_info(info)
+    default_label = _default_quality_label(choices)
+    progress(100)
+    status(f"Найдено вариантов качества: {len(choices)}")
+    return MediaAnalysis(
+        platform=platform,
+        title=str(info.get("title") or ""),
+        choices=choices,
+        default_label=default_label,
+    )
+
+
+def _height_from_quality(quality: str) -> int | None:
+    match = re.search(r"(?<!\d)(\d{3,4})p", quality or "")
+    return int(match.group(1)) if match else None
 
 
 def _format_selector(quality: str) -> str:
-    quality_key = _quality_key(quality)
-    height = QUALITY_HEIGHTS.get(quality_key)
+    height = _height_from_quality(quality)
     if height:
         return (
-            f"bestvideo[vcodec^=avc1][height<={height}]+bestaudio[acodec^=mp4a]/"
-            f"bestvideo[height<={height}]+bestaudio/"
-            f"best[height<={height}]/best"
+            f"bestvideo[height={height}][vcodec^=avc1]+bestaudio[acodec^=mp4a]/"
+            f"bestvideo[height={height}]+bestaudio/"
+            f"best[height={height}]"
         )
-    return "bestvideo+bestaudio/best[acodec!=none]/best"
+    return "bestvideo[vcodec^=avc1]+bestaudio[acodec^=mp4a]/bestvideo+bestaudio/best"
 
 
 def _download_with_ytdlp(
@@ -146,14 +372,8 @@ def _download_with_ytdlp(
     log: LogCallback,
     quality: str,
 ) -> bool:
-    format_selector = _format_selector(quality)
-    args = [
-        str(tools.yt_dlp),
-        "--ignore-config",
-        "--no-color",
+    args = _common_ytdlp_args(tools, app_root) + [
         "--windows-filenames",
-        "--ffmpeg-location",
-        str(tools.ffmpeg.parent),
         "--retries",
         "10",
         "--fragment-retries",
@@ -164,21 +384,19 @@ def _download_with_ytdlp(
         "-N",
         "4",
         "-f",
-        format_selector,
+        _format_selector(quality),
         "--merge-output-format",
         "mp4",
         "--remux-video",
         "mp4",
         "-o",
         str(job / "%(title).150B [%(id)s].%(ext)s"),
+        url,
     ]
-    if tools.deno:
-        args += ["--js-runtimes", f"deno:{tools.deno}"]
-    args += _cookies_args(app_root)
-    args += [url]
     status(f"Скачиваю: {quality}…")
-    log(f"Качество: {quality}")
+    log(f"Выбранное качество: {quality}")
     return _run_streaming(args, status=status, progress=progress, log=log) == 0
+
 
 def _download_with_gallery(
     url: str,
@@ -214,11 +432,10 @@ def _download_with_gallery(
     args += [url]
     status("Проверяю пост / карусель и скачиваю все медиа…")
     code = _run_streaming(args, status=status, progress=progress, log=log)
-    return code == 0 and any(p.is_file() for p in job.rglob("*"))
+    return code == 0 and any(path.is_file() for path in job.rglob("*"))
 
 
 def _probe(path: Path, tools: Toolset) -> dict:
-    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     result = subprocess.run(
         [
             str(tools.ffprobe),
@@ -235,7 +452,7 @@ def _probe(path: Path, tools: Toolset) -> dict:
         text=True,
         encoding="utf-8",
         errors="replace",
-        creationflags=flags,
+        creationflags=_creation_flags(),
     )
     if result.returncode != 0:
         raise RuntimeError(result.stderr.strip() or f"ffprobe не смог прочитать {path.name}")
@@ -251,13 +468,6 @@ def _video_audio_codecs(info: dict) -> tuple[str | None, list[str]]:
         elif stream.get("codec_type") == "audio":
             audio_codecs.append((stream.get("codec_name") or "").lower())
     return video_codec, audio_codecs
-
-
-def _premiere_ready(path: Path, tools: Toolset) -> bool:
-    if path.suffix.lower() != ".mp4":
-        return False
-    video, audio = _video_audio_codecs(_probe(path, tools))
-    return video == "h264" and (not audio or all(codec == "aac" for codec in audio))
 
 
 def _unique_destination(directory: Path, filename: str) -> Path:
@@ -336,6 +546,7 @@ def _convert_for_premiere(
     temp_target.replace(target)
     return target
 
+
 def _move_image(source: Path, destination_dir: Path) -> Path:
     destination_dir.mkdir(parents=True, exist_ok=True)
     target = _unique_destination(destination_dir, source.name)
@@ -380,14 +591,19 @@ def download_media(
                 log("yt-dlp не справился; пробую gallery-dl.")
                 success = _download_with_gallery(url, job, tools, root, status, progress, log)
 
-        files = [p for p in job.rglob("*") if p.is_file()]
+        files = [path for path in job.rglob("*") if path.is_file()]
         if not success or not files:
             raise RuntimeError("Не удалось скачать медиа. Подробности смотри в логе окна.")
 
         outputs: list[Path] = []
-        media_files = [p for p in files if p.suffix.lower() in VIDEO_EXTENSIONS | IMAGE_EXTENSIONS]
+        media_files = [
+            path
+            for path in files
+            if path.suffix.lower() in VIDEO_EXTENSIONS | IMAGE_EXTENSIONS
+        ]
         if not media_files:
             media_files = files
+
         for index, path in enumerate(media_files, start=1):
             progress(70 + int(25 * index / max(1, len(media_files))))
             if path.suffix.lower() in VIDEO_EXTENSIONS:
