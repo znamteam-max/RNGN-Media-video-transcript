@@ -94,10 +94,6 @@ class YoutubeSubtitleTests(unittest.TestCase):
         self.assertIn("Новая фраза.", text)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class UiHelpersTests(unittest.TestCase):
     def test_clean_pasted_url(self) -> None:
         self.assertEqual(
@@ -108,3 +104,7 @@ class UiHelpersTests(unittest.TestCase):
             clean_pasted_url("[video](https://x.com/name/status/123)"),
             "https://x.com/name/status/123",
         )
+
+
+if __name__ == "__main__":
+    unittest.main()
