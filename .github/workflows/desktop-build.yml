@@ -25,6 +25,8 @@ jobs:
       - name: Install Python build dependencies
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
           python -m pip install --upgrade pip
           pip install -r desktop/requirements.txt
           pip install pyinstaller
