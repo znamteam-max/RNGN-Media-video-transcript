@@ -52,7 +52,7 @@ def _timestamp(seconds: float) -> str:
     hours, rem = divmod(millis, 3_600_000)
     minutes, rem = divmod(rem, 60_000)
     secs, ms = divmod(rem, 1000)
-    return f"{hours:02d}:{bminutes:02d}:{secs:02d},{ms:03d}"
+    return f"{hours:02d}:{minutes:02d}:{secs:02d},{ms:03d}"
 
 
 def _readable_timestamp(seconds: float) -> str:
@@ -78,137 +78,170 @@ def _looks_like_cuda_error(exc: BaseException) -> bool:
 
 def _clean_join(words: list[Word]) -> str:
     text = " ".join(w.text.strip() for w in words if w.text.strip())
-    text = re.sub(r"\s+([,.;:!?â€¦%ÊH‹ˆ—H‹^
-Bˆ™]\›ˆ™KœİXŠˆ—ÊÈ‹ˆ‹^
-Kœİš\
+    text = re.sub(r"\s+([,.;:!?â€¦])", r"\1", text)
+    return re.sub(r"\s+", " ", text).strip()
 
-B‚‚™YˆØZ[ØİY\ÊÛÜ™Îˆ\İÕÛÜ™JHOˆ\İİ\VÙ›Ø]›Ø]İ—WN‚ˆX^ØÚ\œÈHˆX^ÜÙXÛÛ™ÈH‹Œˆ]\ÙWØœ™XZÈHBˆZ[—ÜÙXÛÛ™ÈHMBˆİY\Îˆ\İİ\VÙ›Ø]›Ø]İ—WHH×BˆHHˆÚ[HH[ŠÛÜ™ÊN‚ˆÜ›İ\HİÛÜ™ÖÚWWBˆˆHH
-ÈBˆÚ[Hˆ[ŠÛÜ™ÊN‚ˆØ[™Y]HHÛÜ™ÖÚ—Bˆ\˜][ÛˆHØ[™Y]K™[™HÜ›İ\ÌKœİ\ˆØ\HØ[™Y]Kœİ\HÜ›İ\ËLWK™[™ˆØ[™Y]Wİ^HØÛX[—Ú›Ú[ŠÜ›İ\
-ÈØØ[™Y]WJBˆÙ[[˜ÙWÙ[™H›ÛÛ
-™KœÙX\˜Ú
-ˆ–ËˆOø )‰V×‰ğ®ø 'JOÉ‹Ü›İ\ËLWK^œİš\
 
-JJBˆYˆ[ŠØ[™Y]Wİ^
-HˆX^ØÚ\œÈÜˆ\˜][ÛˆˆX^ÜÙXÛÛ™ÈÜˆØ\ˆ]\ÙWØœ™XZÎ‚ˆœ™XZÂˆYˆÙ[[˜ÙWÙ[™[™
-Ü›İ\ËLWK™[™HÜ›İ\ÌKœİ\
-HHZ[—ÜÙXÛÛ™Î‚ˆœ™XZÂˆÜ›İ\˜\[™
-Ø[™Y]JBˆˆ
-ÏHBˆ^HØÛX[—Ú›Ú[ŠÜ›İ\
-BˆYˆ^‚ˆİ\HX^
-ŒÜ›İ\ÌKœİ\
-Bˆ[™HX^
-İ\
-ÈZ[—ÜÙXÛÛ™ËÜ›İ\ËLWK™[™
-BˆYˆİY\È[™İ\HİY\ÖËLWVÌWN‚ˆİ\HİY\ÖËLWVÌWH
-ÈŒBˆ[™HX^
-[™İ\
-ÈZ[—ÜÙXÛÛ™ÊBˆİY\Ë˜\[™
+def _build_cues(words: list[Word]) -> list[tuple[float, float, str]]:
+    max_chars = 84
+    max_seconds = 6.0
+    pause_break = 0.65
+    min_seconds = 0.55
+    cues: list[tuple[float, float, str]] = []
+    i = 0
+    while i < len(words):
+        group = [words[i]]
+        j = i + 1
+        while j < len(words):
+            candidate = words[j]
+            duration = candidate.end - group[0].start
+            gap = candidate.start - group[-1].end
+            candidate_text = _clean_join(group + [candidate])
+            sentence_end = bool(re.search(r"[.!?â€¦][\"'Â»â€)]?$", group[-1].text.strip()))
+            if len(candidate_text) > max_chars or duration > max_seconds or gap > pause_break:
+                break
+            if sentence_end and (group[-1].end - group[0].start) >= min_seconds:
+                break
+            group.append(candidate)
+            j += 1
+        text = _clean_join(group)
+        if text:
+            start = max(0.0, group[0].start)
+            end = max(start + min_seconds, group[-1].end)
+            if cues and start <= cues[-1][1]:
+                start = cues[-1][1] + 0.001
+                end = max(end, start + min_seconds)
+            cues.append((start, end, text))
+        i = max(j, i + 1)
+    return cues
 
-İ\[™^
-JBˆHHX^
-‹H
-ÈJBˆ™]\›ˆİY\Â‚‚™YˆÙ›Ü›X]İ
-ÙYÛY[Îˆ\İİ\VÙ›Ø]İ—WKÚ]İ[Y\İ[\Îˆ›ÛÛ
-HOˆİ‚ˆYˆÚ]İ[Y\İ[\Î‚ˆ™]\›ˆ—ˆ‹š›Ú[Šˆ–Ş×Ü™XYX›Wİ[Y\İ[\
-İ\
-_WHİ^Hˆ›Üˆİ\^[ˆÙYÛY[ÊKœİš\
 
-H
-È—ˆ‚ˆ\˜YÜ˜\Îˆ\İÜİ—HH×Bˆİ\œ™[ˆ\İÜİ—HH×Bˆ[™İHˆ›ÜˆË^[ˆÙYÛY[Î‚ˆİ\œ™[˜\[™
-^
-Bˆ[™İ
-ÏH[Š^
-BˆYˆ[™İHÌÜˆ
-[™İHÍL[™™KœÙX\˜Ú
-ˆ–ËˆOø )—V×‰ğ®ÊWOÉ‹^
-JN‚ˆ\˜YÜ˜\Ë˜\[™
-ˆ‹š›Ú[Šİ\œ™[
-Kœİš\
+def _format_txt(segments: list[tuple[float, str]], with_timestamps: bool) -> str:
+    if with_timestamps:
+        return "\n".join(f"[{_readable_timestamp(start)}] {text}" for start, text in segments).strip() + "\n"
+    paragraphs: list[str] = []
+    current: list[str] = []
+    length = 0
+    for _, text in segments:
+        current.append(text)
+        length += len(text)
+        if length >= 700 or (length >= 350 and re.search(r"[.!?â€¦][\"'Â»â€)]?$", text)):
+            paragraphs.append(" ".join(current).strip())
+            current = []
+            length = 0
+    if current:
+        paragraphs.append(" ".join(current).strip())
+    return "\n\n".join(p for p in paragraphs if p).strip() + "\n"
 
-JBˆİ\œ™[H×Bˆ[™İHˆYˆİ\œ™[‚ˆ\˜YÜ˜\Ë˜\[™
-ˆ‹š›Ú[Šİ\œ™[
-Kœİš\
 
-JBˆ™]\›ˆ——ˆ‹š›Ú[Š›Üˆ[ˆ\˜YÜ˜\ÈYˆ
-Kœİš\
+def transcribe_media(
+    media_path: Path,
+    output_dir: Path,
+    *,
+    profile_name: str = "Ğ¢Ğ¾Ñ‡Ğ½Ğ°Ñ â€” large-v3",
+    language_name: str = "ĞĞ²Ñ‚Ğ¾",
+    with_timestamps: bool = False,
+    make_srt: bool = True,
+    status: StatusCallback = lambda _s: None,
+    progress: ProgressCallback = lambda _p: None,
+    log: LogCallback = lambda _s: None,
+) -> list[Path]:
+    media_path = Path(media_path)
+    if not media_path.is_file():
+        raise FileNotFoundError(media_path)
+    if media_path.suffix.lower() not in SUPPORTED_EXTENSIONS:
+        raise ValueError(f"ĞĞµĞ¿Ğ¾Ğ´Ğ´ĞµÑ€Ğ¶Ğ¸Ğ²Ğ°ĞµĞ¼Ñ‹Ğ¹ Ñ„Ğ¾Ñ€Ğ¼Ğ°Ñ‚: {media_path.suffix}")
 
-H
-È—ˆ‚‚‚™Yˆ˜[œØÜšX™WÛYYXJˆYYXWÜ]ˆ]ˆİ]]Ù\ˆ]ˆ
-‹ˆ›Ùš[WÛ˜[YNˆİˆH´(´/´aô/t,4cÈ8 %\™ÙK]ŒÈ‹ˆ[™İXYÙWÛ˜[YNˆİˆH´$4,´`´/ˆ‹ˆÚ]İ[Y\İ[\Îˆ›ÛÛH˜[ÙKˆXZÙWÜÜˆ›ÛÛHYKˆİ]\Îˆİ]\ĞØ[˜XÚÈH[X™HÜÎˆ›Û™Kˆ›ÙÜ™\ÜÎˆ›ÙÜ™\ÜĞØ[˜XÚÈH[X™HÜˆ›Û™KˆÙÎˆÙĞØ[˜XÚÈH[X™HÜÎˆ›Û™KŠHOˆ\İÔ]N‚ˆYYXWÜ]H]
-YYXWÜ]
-BˆYˆ›İYYXWÜ]š\×Ùš[J
-N‚ˆ˜Z\ÙHš[S›İ›İ[™\œ›ÜŠYYXWÜ]
-BˆYˆYYXWÜ]œİY™š^›İÙ\Š
-H›İ[ˆÕTÔ•QÑVS”ÒSÓ”Î‚ˆ˜Z\ÙH˜[YQ\œ›ÜŠˆ´'t-t/ô/´-4-4-t`4-´.4,´,4-t/4bô.H4a4/´`4/4,4`ˆÛYYXWÜ]œİY™š^HŠB‚ˆ›Ùš[HHSÑSÔ“Ñ’STË™Ù]
-›Ùš[WÛ˜[YKSÑSÔ“Ñ’STÖÈ´(´/´aô/t,4cÈ4/´/t.H4/4/´-4-t.ôc8 %\™ÙK]ŒÈ—JBˆ[™İXYÙHHS‘ÕPQÑTË™Ù]
-[™İXYÙWÛ˜[YK›Û™JBˆİ]]Ù\‹›ZÙ\Š\™[ÏUYK^\İÛÚÏUYJBˆ[Ù[Ù\ˆHØ\Ù]WÙ\Š
-HÈ›[Ù[È‚ˆ[Ù[Ù\‹›ZÙ\Š\™[ÏUYK^\İÛÚÏUYJB‚ˆN‚ˆœ›ÛH˜\İ\—İÚ\Ü\ˆ[\ÜÚ\Ü\“[Ù[ˆ^Ù\^Ù\[Ûˆ\È^Î‚ˆ˜Z\ÙH[[YQ\œ›ÜŠ´'t-H4`ô`t`´,4/t/´,´.ô-t/H˜\İ\‹]Ú\Ü\‹ˆ4%ô,4/ô`ô`t`´.\ÚİÜÑUTÕÒS‘ÕÔË˜˜]ˆŠHœ›ÛH^Â‚ˆ™Y™\—ÙÜHHØİYWØ]˜Z[X›J
-Bˆ][\ÈHÊ˜İYH‹™›Ø]MˆŠK
-˜ÜH‹š[ŠWHYˆ™Y™\—ÙÜH[ÙHÊ˜ÜH‹š[ŠWBˆ\İÙ\œ›Üˆ^Ù\[Ûˆ›Û™HH›Û™B‚ˆ›Üˆ][\Ú[™^
-]šXÙKÛÛ\]Wİ\JH[ˆ[[Y\˜]J][\Ëİ\LJN‚ˆ[Ù[H›Û™BˆN‚ˆ›ÙÜ™\ÜÊÊBˆİ]\Êˆ´%ô,4,ô`4`ô-ô.´,Ü›Ùš[VÉÛ[Ù[	×_H0­ÈÙ]šXÙK\\Š
-_x )ˆŠBˆÙÊˆ›[Ù[^Ü›Ùš[VÉÛ[Ù[	×_H]šXÙO^Ù]šXÙ_HÛÛ\]Wİ\O^ØÛÛ\]Wİ\_HŠBˆ[Ù[HÚ\Ü\“[Ù[
-ˆİŠ›Ùš[VÈ›[Ù[—JKˆ]šXÙOY]šXÙKˆÛÛ\]Wİ\OXÛÛ\]Wİ\KˆİÛ›ØYÜ›Ûİ\İŠ[Ù[Ù\ŠKˆ
-Bˆİ]\Êˆ´(4,4`t/ô/´-ô/t,4,´,4/t.4-H0­ÈÉÓ•’QPHÔIÈYˆ]šXÙHOH	ØİYIÈ[ÙH	ĞÔIßx )ˆŠBˆÙYÛY[×Ú]\‹[™›ÈH[Ù[˜[œØÜšX™JˆİŠYYXWÜ]
-Kˆ[™İXYÙO[[™İXYÙKˆ™X[WÜÚ^™OZ[
-›Ùš[VÈ˜™X[WÜÚ^™H—JKˆ˜YÙš[\UYKˆ˜YÜ\˜[Y]\œÏ^È›Z[—ÜÚ[[˜ÙWÙ\˜][Û—Û\ÈˆÌKˆÛÜ™İ[Y\İ[\Ï[XZÙWÜÜˆ
-Bˆ\˜][ÛˆH›Ø]
-Ù]]Š[™›Ë™\˜][Ûˆ‹Œ
-HÜˆŒ
-BˆÙYÛY[×İ^ˆ\İİ\VÙ›Ø]İ—WHH×BˆÛÜ™Îˆ\İÕÛÜ™HH×Bˆ›ÜˆÙYÛY[[ˆÙYÛY[×Ú]\‚ˆ^H
-ÙYÛY[^ÜˆˆŠKœİš\
+    profile = MODEL_PROFILES.get(profile_name, MODEL_PROFILES["Ğ¢Ğ¾Ñ‡Ğ½Ğ°Ñ â€” large-v3"])
+    language = LANGUAGES.get(language_name, None)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    model_dir = _app_data_dir() / "models"
+    model_dir.mkdir(parents=True, exist_ok=True)
 
-BˆYˆ^‚ˆÙYÛY[×İ^˜\[™
+    try:
+        from faster_whisper import WhisperModel
+    except Exception as exc:
+        raise RuntimeError("ĞĞµ ÑƒÑÑ‚Ğ°Ğ½Ğ¾Ğ²Ğ»ĞµĞ½ faster-whisper. Ğ—Ğ°Ğ¿ÑƒÑÑ‚Ğ¸ desktop\\SETUP_WINDOWS.bat.") from exc
 
-›Ø]
-ÙYÛY[œİ\
-K^
-JBˆYˆXZÙWÜÜ[™Ù]]ŠÙYÛY[ÛÜ™È‹›Û™JN‚ˆ›ÜˆÛÜ™[ˆÙYÛY[ÛÜ™Î‚ˆİ^H
-Ù]]ŠÛÜ™ÛÜ™‹ˆŠHÜˆˆŠKœİš\
+    prefer_gpu = _cuda_available()
+    attempts = [("cuda", "float16"), ("cpu", "int8")] if prefer_gpu else [("cpu", "int8")]
+    last_error: Exception | None = None
 
-BˆYˆ›İİ^‚ˆÛÛ[YBˆÛÜ™Ë˜\[™
-ÛÜ™
-›Ø]
-ÛÜ™œİ\
-K›Ø]
-ÛÜ™™[™
-Kİ^
-JBˆYˆ\˜][Ûˆˆ‚ˆ›ÙÜ™\ÜÊZ[ŠM‹X^
-K[
-H
-ÈLH
-ˆ›Ø]
-ÙYÛY[™[™
-HÈ\˜][ÛŠJJJB‚ˆYˆ›İÙYÛY[×İ^‚ˆ˜Z\ÙH[[YQ\œ›ÜŠ´(4-taôc4,ˆ4a4,4.t.ô-H4/t-H4/´,t/t,4`4`ô-´-t/t,ˆŠB‚ˆ˜\ÙHHÜØY™WÜİ[JYYXWÜ]
-BˆÜ]Hİ]]Ù\ˆÈˆØ˜\Ù_K˜[œØÜš\‚ˆÜ]Üš]Wİ^
-Ù›Ü›X]İ
-ÙYÛY[×İ^Ú]İ[Y\İ[\ÊK[˜ÛÙ[™ÏH]‹N\ÚYÈŠBˆİ]]ÈHİÜ]B‚ˆYˆXZÙWÜÜ‚ˆYˆ›İÛÜ™Î‚ˆÈ˜[˜XÚÈÈÙYÛY[[Z[™ÈYˆÛÜ™[Z[™È\ÈXœÙ[‚ˆİY\ÈH×BˆÙYÜÈH\İ
-ÙYÛY[×İ^
-Bˆ›ÜˆY
-İ\^
-H[ˆ[[Y\˜]JÙYÜÊN‚ˆ[™HÙYÜÖÚY
-ÈWVÌHHŒHYˆY
-ÈH[ŠÙYÜÊH[ÙHİ\
-ÈŒˆİY\Ë˜\[™
+    for attempt_index, (device, compute_type) in enumerate(attempts, start=1):
+        model = None
+        try:
+            progress(3)
+            status(f"Ğ—Ğ°Ğ³Ñ€ÑƒĞ·ĞºĞ° {profile['model']} Â· {device.upper()}â€¦")
+            log(f"model={profile['model']} device={device} compute_type={compute_type}")
+            model = WhisperModel(
+                str(profile["model"]),
+                device=device,
+                compute_type=compute_type,
+                download_root=str(model_dir),
+            )
+            status(f"Ğ Ğ°ÑĞ¿Ğ¾Ğ·Ğ½Ğ°Ğ²Ğ°Ğ½Ğ¸Ğµ Â· {'NVIDIA GPU' if device == 'cuda' else 'CPU'}â€¦")
+            segments_iter, info = model.transcribe(
+                str(media_path),
+                language=language,
+                beam_size=int(profile["beam_size"]),
+                vad_filter=True,
+                vad_parameters={"min_silence_duration_ms": 700},
+                word_timestamps=make_srt,
+            )
+            duration = float(getattr(info, "duration", 0.0) or 0.0)
+            segments_text: list[tuple[float, str]] = []
+            words: list[Word] = []
+            for segment in segments_iter:
+                text = (segment.text or "").strip()
+                if text:
+                    segments_text.append((float(segment.start), text))
+                if make_srt and getattr(segment, "words", None):
+                    for word in segment.words:
+                        wtext = (getattr(word, "word", "") or "").strip()
+                        if not wtext:
+                            continue
+                        words.append(Word(float(word.start), float(word.end), wtext))
+                if duration > 0:
+                    progress(min(96, max(5, int(5 + 91 * float(segment.end) / duration))))
 
-İ\X^
-İ\
-ÈMK[™
-K^
-JBˆ[ÙN‚ˆİY\ÈHØZ[ØİY\ÊÛÜ™ÊBˆÜÜ]Hİ]]Ù\ˆÈˆØ˜\Ù_KœİX]\ËœÜ‚ˆ›ØÚÜÈHÂˆˆÚYW×İ[Y\İ[\
-İ\
-_HKOˆ×İ[Y\İ[\
-[™
-_Wİ^H‚ˆ›ÜˆY
-İ\[™^
-H[ˆ[[Y\˜]JİY\Ëİ\LJBˆBˆÜÜ]Üš]Wİ^
-——ˆ‹š›Ú[Š›ØÚÜÊKœœİš\
+            if not segments_text:
+                raise RuntimeError("Ğ ĞµÑ‡ÑŒ Ğ² Ñ„Ğ°Ğ¹Ğ»Ğµ Ğ½Ğµ Ğ¾Ğ±Ğ½Ğ°Ñ€ÑƒĞ¶ĞµĞ½Ğ°.")
 
-H
-È—ˆ‹[˜ÛÙ[™ÏH]‹N\ÚYÈŠBˆİ]]Ë˜\[™
-ÜÜ]
-B‚ˆ›ÙÜ™\ÜÊL
-Bˆİ]\Êˆ´$ô/´`´/´,´/ˆ0­ÈÉÈ
-È	Ëš›Ú[ŠœİY™š^›İš\
-	Ë‰ÊH›Üˆ[ˆİ]]Ê_HŠBˆ™]\›ˆİ]]Âˆ^Ù\^Ù\[Ûˆ\È^Î‚ˆ\İÙ\œ›ÜˆH^ÂˆÙÊˆ˜[œØÜš\[Ûˆ][\Ø][\Ú[™^H˜Z[YˆÙ^ßHŠBˆYˆ]šXÙHOH˜İYHˆ[™ÛÛÚÜ×ÛZÙWØİYWÙ\œ›ÜŠ^ÊN‚ˆİ]\Ê‘ÔH4/t-t-4/´`t`´`ô/ô-t/Kˆ4'ô-t`4-t.´.ôc´aô,4c´`tc4/t,Ôx )ˆŠBˆYˆ[Ù[\È›İ›Û™N‚ˆ[[Ù[ˆØË˜ÛÛXİ
+            base = _safe_stem(media_path)
+            txt_path = output_dir / f"{base}.transcript.txt"
+            txt_path.write_text(_format_txt(segments_text, with_timestamps), encoding="utf-8-sig")
+            outputs = [txt_path]
 
-BˆÛÛ[YBˆ˜Z\ÙB‚ˆ˜Z\ÙH[[YQ\œ›ÜŠ´'t-H4`ô-4,4.ô/´`tc4,´bô/ô/´.ô/t.4`´c4`´`4,4/t`t.´`4.4,t,4a´.4c‹ˆŠHœ›ÛH\İÙ\œ›Ü‚
+            if make_srt:
+                if not words:
+                    # Fallback to segment timing if word timing is absent.
+                    cues = []
+                    segs = list(segments_text)
+                    for idx, (start, text) in enumerate(segs):
+                        end = segs[idx + 1][0] - 0.05 if idx + 1 < len(segs) else start + 4.0
+                        cues.append((start, max(start + 0.55, end), text))
+                else:
+                    cues = _build_cues(words)
+                srt_path = output_dir / f"{base}.subtitles.srt"
+                blocks = [
+                    f"{idx}\n{_timestamp(start)} --> {_timestamp(end)}\n{text}"
+                    for idx, (start, end, text) in enumerate(cues, start=1)
+                ]
+                srt_path.write_text("\n\n".join(blocks).rstrip() + "\n", encoding="utf-8-sig")
+                outputs.append(srt_path)
+
+            progress(100)
+            status(f"Ğ“Ğ¾Ñ‚Ğ¾Ğ²Ğ¾ Â· {' + '.join(p.suffix.lstrip('.') for p in outputs)}")
+            return outputs
+        except Exception as exc:
+            last_error = exc
+            log(f"transcription attempt {attempt_index} failed: {exc}")
+            if device == "cuda" and _looks_like_cuda_error(exc):
+                status("GPU Ğ½ĞµĞ´Ğ¾ÑÑ‚ÑƒĞ¿ĞµĞ½. ĞŸĞµÑ€ĞµĞºĞ»ÑÑ‡Ğ°ÑÑÑŒ Ğ½Ğ° CPUâ€¦")
+                if model is not None:
+                    del model
+                gc.collect()
+                continue
+            raise
+
+    raise RuntimeError("ĞĞµ ÑƒĞ´Ğ°Ğ»Ğ¾ÑÑŒ Ğ²Ñ‹Ğ¿Ğ¾Ğ»Ğ½Ğ¸Ñ‚ÑŒ Ñ‚Ñ€Ğ°Ğ½ÑĞºÑ€Ğ¸Ğ±Ğ°Ñ†Ğ¸Ñ.") from last_error
