@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ctypes
 import gc
 import os
 import re
@@ -65,7 +66,14 @@ def _readable_timestamp(seconds: float) -> str:
 def _cuda_available() -> bool:
     try:
         import ctranslate2
-        return ctranslate2.get_cuda_device_count() > 0
+        if ctranslate2.get_cuda_device_count() <= 0:
+            return False
+        if os.name == "nt":
+            try:
+                ctypes.WinDLL("cublas64_12.dll")
+            except OSError:
+                return False
+        return True
     except Exception:
         return False
 
