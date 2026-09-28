@@ -2,17 +2,18 @@
 
 Единый проект для работы с медиа: скачивание видео/фото с соцсетей, локальная транскрибация аудио/видео и получение существующих YouTube-субтитров.
 
-Сейчас в репозитории два runtime, которые постепенно сводятся в одну desktop-программу:
+Сейчас в репозитории два runtime, при этом основные пользовательские функции уже сведены в одну desktop-программу:
 
-- **`desktop/` — RNGN Media Desktop**: единое Windows GUI для скачивания медиа и транскрибации;
+- **`desktop/` — RNGN Media Desktop**: единое Windows GUI для скачивания медиа, локальной транскрибации и получения существующих YouTube-субтитров;
 - **`src/` — YouTube Transcript Telegram Bot**: существующий сервис, который достаёт manual/auto subtitles с YouTube без повторного распознавания речи.
 
-## Desktop: первый объединённый этап
+## Desktop: объединённая версия
 
-Уже объединены две функции:
+В одном Windows GUI уже объединены три функции:
 
 1. **Media Downloader** — вставляешь одну ссылку, платформа определяется автоматически: YouTube / VK / TikTok / Instagram / X. Для обычных видео используется `yt-dlp`, для постов/каруселей доступен `gallery-dl`, видео после загрузки при необходимости приводится FFmpeg к MP4 H.264 + AAC для Premiere.
 2. **Transcriber** — выбираешь локальный аудио- или видеофайл и получаешь TXT + SRT через `faster-whisper`. Поддержаны `large-v3` и `large-v3-turbo`, NVIDIA GPU при доступности и CPU fallback.
+3. **YouTube Subtitles** — вставляешь YouTube URL, программа находит уже существующие manual/auto caption tracks, позволяет выбрать язык и сохраняет TXT + SRT без повторной транскрибации Whisper.
 
 Рабочая база downloader зафиксирована как regression reference: manifest и контрольные SHA-256 лежат в `artifacts/downloader/`, а новый desktop-core повторяет её базовую маршрутизацию через `yt-dlp` / `gallery-dl` / FFmpeg. Оригинальные ZIP v5.16 и v5.16.1 остаются сохранены у владельца проекта и в рабочем архиве миграции; бинарные ZIP не добавлены в обычный Git history на первом этапе. Сложные platform-specific fallback'и переносим в общий код постепенно.
 
@@ -35,11 +36,11 @@ RUN.bat
 python test_core.py
 ```
 
-## Следующий этап объединения
+## Windows installer
 
-Текущий YouTube subtitle extractor остаётся рабочим. Следующий migration step — вынести его логику в переиспользуемый модуль и добавить в Desktop третий раздел:
+GitHub Actions собирает desktop-программу через PyInstaller и затем делает обычный Windows installer через Inno Setup. В installer включаются `yt-dlp`, `gallery-dl`, Deno и FFmpeg/ffprobe, поэтому пользователю не нужно отдельно ставить Python или media-tools. Workflow: `.github/workflows/desktop-build.yml`.
 
-**YouTube URL → найти существующие manual/auto subtitles → выбрать язык → сохранить TXT/SRT**, без Whisper, если субтитры у ролика уже есть.
+Исходный Telegram subtitle bot в `src/` сохраняется как отдельный runtime и regression/reference implementation.
 
 ## ZNAMBO Transcriber v1.7.0
 
