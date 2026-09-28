@@ -1,1 +1,97 @@
-# RNGN Media Desktop Б─■ │┘и█║╔я∙█яуи■((▄▄┐B⌡BвBОF0(+B{BсBВBю│]╔╧▒╫щл╥BЪFBШBоFBцBСBСBю┐BсBОF<┐FFFGF┐FBкF?BъBцBВBВF/F┐BъBцBсBцFХ((д╦┐FBКBцFBцFF0┐BСBвBсBЦBю┐BЪBЬ┐FFF/BОBКBт┐F│e╫уQу┴■─╪│Y,─╪│Q╔╜Q╫╛─╪│%╧мя┘²и┘╢─╪│`Л(х╦┐FFBцBВFBКFBЦBгBЦFBШBкBцFF0┐BОBШBКBцBОF3BВF/BД┐BцFBсBЦBЬ╢┐BЦBОBЮ┐BкBЦBсBвBШFBцBГBЛ┐Bх│QaP╫MIPЛ(л╦┐BЪBШBОFFBЦFF0┐FBшBт┐FFF'BвFFBкFF;F'BЦBт│e╫уQу┴■│╣┘╧у┘╟╫┘уя╪│му┴я╔я╠∙л┐BгBвBэ┐BЪBШBкFBШFBВBШBоBЬ┐FBцFBЪBШBъBВBцBкBцBВBЦF<┐FBвFBЮ╦(+wBю┐BЪBвFBкBШBП┐F7FBцBЪBт┐Bх┐BвBсBЦBВF/BД│▒∙м╜я╫ю│м╫уи█■┐BШBгF+BвBсBЦBВBвBВF,┐BЪFBВBКFF,─г┼Lх╦┐B┤FF'BвFFBкFF;F'BЦBД│e╫уQу┴■│му┴я╔я╠■│м∙иы╔█■┐BШFFBцBкBОBвBТ┐FBцBгBШFBЦBП┐Bх┐BКBШFBВBт┐FBвBЪBШBъBЦFBШFBЦF<┐BЮ┐BгFBсBвF┐BЪBШBсBКBОF;FFGBТ┐BКBцBХ┐FFBвFBЦBД│я┘┬┐FBОBвBсFF;F'BЦBП┐F7FBцBЪBШBП╦((▄▄│∙м╜я╫ю│╣╫▒у╠∙л((╢││┘аю╧аЕ─┐┼P│Q╜╔╧я∙х│U$┐BЮ┐FBШBВBШBкF/Bт│щ╫и╜∙х│я║и∙┘▒лЛ┐FF?BшFGBОBцF<┐FBцBгBШFBю┐BВBт┐BсBШBОBшBВBю┐BгBОBШBКBЦFBШBкBцFF0┐BШBКBВBЬ╦(╢││а╠┘я≥╫и╣л╧аЕ─┐┼P┐BцBкFBШBСBцFBЦFBвFBКBШBт┐BШBЪFBвBсBвBОBвBВBЦBт┐BЪBОBцFFBШFBСF,┐FBШBОF3BКBЬ┐BЪBЬ│UI.(╢││▒╫щ╧╠╫┘▒∙х╧аЕ─┐┼P┐BСBцFF/FFFBЦBъBцFBЦF<┐FBвBшBсF││Еп╣▒╠а─┐BЮ││²┘╠╠∙иД╣▒╠─╟┐BъBцFBвBП│╣а∙°│╧╫и╣┘╠╔И┘я╔╫╦┐BсBОF<│Aи∙╣╔∙и■╦(╢││яи┘╧м█и╔┴∙х╧аЕ─┐┼P│█╠∙┘╦╣и╫╫╢│и∙╔╣а╠∙╣∙╧я┘я╔╫╦┐BЪBШBсFBкBвFBшBсFGBВBВBШBоBЬ│█╫и■┐BЪBШBкBвBсBвBВBЦF<│i95	<│Qи┘╧м█и╔┴∙х│ьд╦э╦ю┐BВBю││≥┘мя∙х╣щ║╔ма∙и──╪│Qи┘╧м╠┘я■х╦(╢││┴╫╫ямяи┘а}я╫╫╠л╧але─┐┼P┐FBКBцFBЦBкBцBВBЦBт│иу╧я╔╣■│я╫╫╠л┐Bх││▒∙м╜я╫ю╫я╫╫╠л╫┴╔╧─╦(╢││╠∙²┘█Д╫▒╫щ╧╠╫┘▒∙х╣ьт╦дь╦д╫─┐┼P┐FBШFFBцBВFGBВBВBцF<┐FBцBгBШFBцF<│A╫щ∙иM║∙╠╟╥BкBвFBКBю│▒╫щ╧╠╫┘▒∙х┐BсBОF<│и∙²и∙мм╔╫╦│я∙мя╔╧°╦((▄▄┐B÷FBЬ┐BВBт┐FBСBвF#BЦBкBцBвBП(+SBвFFFFBкBШBкFF;F'BЦBД│Q∙╠∙²и┘╢╫╠╫у▒≥╠┘и■│e╫уQу┴■│му┴я╔я╠■│┴╫п┐Bх││ми▄╫─┐BШFFBцFGFFF<┐BШFBсBвBОF3BВF/BП│иу╧я╔╣■╦│∙м╜я╫ю┐BВBт┐BъBцBкBЦFBЦF┐BШF│Q∙╠∙²и┘╢┐BЮ│╠╫у▒≥╠┘и■╦┐BFBЮ┐BЪBвFBвBВBШFBт│му┴я╔я╠■│∙Аяи┘█я╔╫╦┐Bх│U$┐BШBгF'BцF<│e╫уQу┴■╥BОBШBоBЦBКBю┐BсBШBОBшBВBю┐BгF/FF0┐BкF/BВBвFBвBВBю┐Bх┐BЪBвFBвBЦFBЪBШBОF3BъFBвBСF/BД┐BСBШBсFBОF0╟┐Bю┐BгBШF┐BсBШBОBшBвBТ┐BЪFBШBсBШBОBшBЦFF0┐FBцBгBШFBцFF0╦((▄▄│Iу╧я╔╣■│▒┘я└(+BwBт┐BКBШBСBСBЦFF?FFF<Х((╢│─╧ы∙╧ь╫─Л(╢││▒∙м╜я╫ю╫я╫╫╠л╫┴╔╦╪╗╧∙А∙─Л(╢│]║╔ма∙х│╣╫▒∙╠лЛ(╢│█╫╫╜╔∙лЛ(╢┐BЪBШBОF3BъBШBкBцFBвBОF3FBКBЦBт│▒╫щ╧╠╫┘▒л╫яи┘╧м█и╔аял╫╠╫²л╦(+BsBШBсBвBОBЮ┐BЮ│иу╧я╔╣■│мя┘я■│▒∙м╜я╫ю┐FFBцBВF?FFF<┐Bх│─∙1=1AAQ∙qqI98╣5∙▒╔┘─╦(
+# RNGN Media Desktop Б─■ Architecture
+
+## п╕п╣п╩я▄
+
+п·п╢п╦п╫ Windows GUI п╦ п╬п╢п╦п╫ GitHub-я─п╣п©п╬п╥п╦я┌п╬я─п╦п╧ п╢п╩я▐ я┌я─я▒я┘ п╪п╣п╢п╦п╟-п©п╬я┌п╬п╨п╬п╡:
+
+```text
+URL Б■─Б■─Б■─Б■─Б■─Б■─Б■─Б■─Б■─Б■─Б■─Б■─Б■─Б■─Б■─Б√╨ Download Б■─Б■─Б■─Б■─Б■─Б■─Б■─Б■─Б■─Б√╨ media file
+local media file Б■─Б√╨ Transcribe Б■─Б■─Б■─Б■─Б■─Б■─Б■─Б■─Б√╨ TXT / SRT
+YouTube URL Б■─Б■─Б■─Б■─Б■─Б■─Б■─Б√╨ Existing captions Б√╨ TXT / SRT
+```
+
+п÷п╬п╩я▄п╥п╬п╡п╟я┌п╣п╩я▄ п╫п╣ п╡я▀п╠п╦я─п╟п╣я┌ п©п╩п╟я┌я└п╬я─п╪я┐ п╢п╩я▐ я│п╨п╟я┤п╦п╡п╟п╫п╦я▐ п╡я─я┐я┤п╫я┐я▌.
+
+## Modules
+
+### `app.py`
+
+Tkinter GUI. п║п╣п╧я┤п╟я│ я┌я─п╦ п╡п╨п╩п╟п╢п╨п╦:
+
+- **п║п╨п╟я┤п╟я┌я▄ п╪п╣п╢п╦п╟**
+- **п╒я─п╟п╫я│п╨я─п╦п╠п╦я─п╬п╡п╟я┌я▄**
+- **YouTube я│я┐п╠я┌п╦я┌я─я▀**
+
+п╒я▐п╤я▒п╩я▀п╣ п╬п©п╣я─п╟я├п╦п╦ п╡я▀п©п╬п╩п╫я▐я▌я┌я│я▐ п╡ worker threads. GUI п©п╬п╩я┐я┤п╟п╣я┌ status/progress/log я┤п╣я─п╣п╥ п╬я┤п╣я─п╣п╢я▄, я┤я┌п╬п╠я▀ п╬п╨п╫п╬ п╫п╣ п╥п╟п╡п╦я│п╟п╩п╬ п╡п╬ п╡я─п╣п╪я▐ я│п╣я┌п╣п╡я▀я┘ п╬п©п╣я─п╟я├п╦п╧ п╦ я┌я─п╟п╫я│п╨я─п╦п╠п╟я├п╦п╦.
+
+### `platforms.py`
+
+п·п©я─п╣п╢п╣п╩п╣п╫п╦п╣ п©п╩п╟я┌я└п╬я─п╪я▀ п©п╬ URL п╦ п╣п╢п╦п╫я▀п╣ п╦п╪п╣п╫п╟ output folders.
+
+### `downloader.py`
+
+п°п╟я─я┬я─я┐я┌п╦п╥п╟я├п╦я▐ п╥п╟пЁя─я┐п╥п╨п╦:
+
+- YouTube / VK / TikTok Б─■ я│п╫п╟я┤п╟п╩п╟ `yt-dlp`;
+- Instagram / X Б─■ я│п╫п╟я┤п╟п╩п╟ `gallery-dl`, п╥п╟я┌п╣п╪ fallback;
+- п╢п╩я▐ п©п╬п╢п╢п╣я─п╤п╦п╡п╟п╣п╪я▀я┘ platform failures п╦я│п©п╬п╩я▄п╥я┐п╣я┌я│я▐ п╬п╠я─п╟я┌п╫я▀п╧ fallback;
+- FFmpeg/ffprobe п©я─п╬п╡п╣я─я▐я▌я┌ п╨п╬п╢п╣п╨п╦;
+- п╣я│п╩п╦ я└п╟п╧п╩ п╫п╣ Premiere-ready, п╬п╫ п©п╣я─п╣п╨п╬п╢п╦я─я┐п╣я┌я│я▐ п╡ MP4 H.264 + AAC.
+
+Runtime tools п╦я┴я┐я┌я│я▐:
+1. я─я▐п╢п╬п╪ я│ packaged EXE п╡ `tools/bin`;
+2. п╡ dev tree;
+3. п╡ legacy/local Media Downloader install п╨п╟п╨ fallback.
+
+### `transcriber.py`
+
+п⌡п╬п╨п╟п╩я▄п╫п╟я▐ я┌я─п╟п╫я│п╨я─п╦п╠п╟я├п╦я▐ я┤п╣я─п╣п╥ `faster-whisper`.
+
+- `large-v3` Б─■ я┌п╬я┤п╫я▀п╧ п©я─п╬я└п╦п╩я▄;
+- `large-v3-turbo` Б─■ п╠я▀я│я┌я─я▀п╧ п©я─п╬я└п╦п╩я▄;
+- CUDA п╦я│п©п╬п╩я▄п╥я┐п╣я┌я│я▐ п©я─п╦ п╫п╟п╩п╦я┤п╦п╦;
+- п©я─п╦ CUDA/DLL/driver п╬я┬п╦п╠п╨п╣ п╡я▀п©п╬п╩п╫я▐п╣я┌я│я▐ fallback п╫п╟ CPU;
+- TXT п╦ SRT я└п╬я─п╪п╦я─я┐я▌я┌я│я▐ п╩п╬п╨п╟п╩я▄п╫п╬;
+- Whisper models я┘я─п╟п╫я▐я┌я│я▐ п╡ `%LOCALAPPDATA%\\RNGN-Media\\models`.
+
+### `youtube_subtitles.py`
+
+п÷п╬п╩я┐я┤п╣п╫п╦п╣ я┐п╤п╣ я│я┐я┴п╣я│я┌п╡я┐я▌я┴п╦я┘ YouTube captions п╠п╣п╥ Whisper.
+
+- `yt-dlp --dump-single-json` п©п╬п╩я┐я┤п╟п╣я┌ я│п©п╦я│п╬п╨ `subtitles` п╦ `automatic_captions`;
+- manual п╦ auto tracks п╫п╣ я│п╪п╣я┬п╦п╡п╟я▌я┌я│я▐;
+- п╡я▀п╠я─п╟п╫п╫п╟я▐ п╢п╬я─п╬п╤п╨п╟ я│п╨п╟я┤п╦п╡п╟п╣я┌я│я▐ п╨п╟п╨ VTT/SRT;
+- FFmpeg п╦я│п©п╬п╩я▄п╥я┐п╣я┌я│я▐ п╨п╟п╨ fallback-п╨п╬п╫п╡п╣я─я┌п╣я─ VTT Б├▓ SRT;
+- п╦п╥ SRT я│я┌я─п╬п╦я┌я│я▐ п╬п╠я▀я┤п╫я▀п╧ TXT я│ п╢п╣п╢я┐п©п╩п╦п╨п╟я├п╦п╣п╧ rolling auto-captions.
+
+### `bootstrap_tools.ps1`
+
+п║п╨п╟я┤п╦п╡п╟п╣я┌:
+- yt-dlp;
+- gallery-dl Windows build;
+- Deno;
+- FFmpeg + ffprobe.
+
+### Packaging
+
+`desktop-build.yml`:
+1. я│я┌п╟п╡п╦я┌ Python dependencies;
+2. я│п╨п╟я┤п╦п╡п╟п╣я┌ media-tools;
+3. я│п╬п╠п╦я─п╟п╣я┌ `RNGN Media.exe` я┤п╣я─п╣п╥ PyInstaller;
+4. п╢п╬п╠п╟п╡п╩я▐п╣я┌ tools я─я▐п╢п╬п╪ я│ EXE;
+5. я│п╬п╠п╦я─п╟п╣я┌ `RNGN-Media-Setup-0.2.0.exe` я┤п╣я─п╣п╥ Inno Setup;
+6. п╥п╟пЁя─я┐п╤п╟п╣я┌ Actions artifact;
+7. п©я┐п╠п╩п╦п╨я┐п╣я┌ GitHub release `desktop-v0.2.0`.
+
+## п╖я┌п╬ п╫п╣ я┐п╢п╟п╩п╣п╫п╬
+
+п п╬я─п╫п╣п╡п╬п╧ `src/` Б─■ я│я┐я┴п╣я│я┌п╡я┐я▌я┴п╦п╧ YouTube Transcript Telegram Bot. п·п╫ п╬я│я┌п╟я▒я┌я│я▐ п╬я┌п╢п╣п╩я▄п╫я▀п╪ runtime п╦ reference implementation; desktop-п╪п╬п╢я┐п╩я▄ п╫п╣ я┌я─п╣п╠я┐п╣я┌ п╣пЁп╬ п╥п╟п©я┐я│п╨п╟.
+
+## п╖я┌п╬ п╫п╣ я┘я─п╟п╫п╦я┌я│я▐ п╡ Git
+
+- Whisper models;
+- cookies;
+- media downloads;
+- Python venv;
+- runtime binaries п╦п╥ `desktop/tools/bin` Б─■ п╬п╫п╦ я│п╨п╟я┤п╦п╡п╟я▌я┌я│я▐ build/setup п©я─п╬я├п╣я│я│п╬п╪;
+- п©п╬п╩я▄п╥п╬п╡п╟я┌п╣п╩я▄я│п╨п╦п╣ п╩п╬п╨п╟п╩я▄п╫я▀п╣ я└п╟п╧п╩я▀.
