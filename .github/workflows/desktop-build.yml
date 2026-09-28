@@ -1,0 +1,73 @@
+name: Build Windows desktop installer
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'desktop/**'
+      - '.github/workflows/desktop-build.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python build dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r desktop/requirements.txt
+          pip install pyinstaller
+
+      - name: Download media runtime tools
+        shell: powershell
+        run: |
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File desktop/bootstrap_tools.ps1
+
+      - name: Build desktop application
+        shell: pwsh
+        run: |
+          pyinstaller --noconfirm --clean --windowed --name "RNGN Media" --collect-all faster_whisper --collect-all ctranslate2 --collect-all av desktop/app.py
+          New-Item -ItemType Directory -Force -Path "dist/RNGN Media/tools/bin" | Out-Null
+          Copy-Item "desktop/tools/bin/*" "dist/RNGN Media/tools/bin/" -Force
+
+      - name: Smoke test packaged files
+        shell: pwsh
+        run: |
+          if (!(Test-Path "dist/RNGN Media/RNGN Media.exe")) { throw "Packaged EXE missing" }
+          $required = @("yt-dlp.exe","gallery-dl.exe","ffmpeg.exe","ffprobe.exe","deno.exe")
+          foreach ($name in $required) {
+            if (!(Test-Path "dist/RNGN Media/tools/bin/$name")) { throw "Missing tool: $name" }
+          }
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: |
+          choco install innosetup --no-progress -y
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $iscc = "C:\\Program Files (x86)\\Inno Setup 6\\ISCC.exe"
+          if (!(Test-Path $iscc)) { $iscc = "C:\\Program Files\\Inno Setup 6\\ISCC.exe" }
+          if (!(Test-Path $iscc)) { throw "ISCC.exe not found" }
+          & $iscc "desktop\\rngn-media.iss"
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed: $LASTEXITCODE" }
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: RNGN-Media-Windows-0.2.0
+          path: installer-dist/RNGN-Media-Setup-0.2.0.exe
+          if-no-files-found: error
+          retention-days: 30
