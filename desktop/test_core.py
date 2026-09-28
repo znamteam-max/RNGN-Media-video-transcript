@@ -7,7 +7,7 @@ from downloader import _format_selector, quality_choices_from_info
 
 from platforms import detect_platform, platform_folder
 from transcriber import Word, _build_cues, _format_txt, _timestamp
-from youtube_subtitles import _extract_video_id, _json3_to_srt, srt_to_text, tracks_from_info
+from youtube_subtitles import _extract_video_id, _json3_to_srt, _vtt_to_srt, _xml_to_srt, srt_to_text, tracks_from_info
 
 
 class PlatformDetectionTests(unittest.TestCase):
@@ -106,6 +106,22 @@ class YoutubeSubtitleTests(unittest.TestCase):
         )
         self.assertIn("00:00:01,000 --> 00:00:02,500", srt)
         self.assertIn("Hello world", srt)
+
+    def test_vtt_to_srt(self) -> None:
+        vtt = """WEBVTT
+
+00:00:01.000 --> 00:00:02.500
+Hello <b>world</b>
+"""
+        srt = _vtt_to_srt(vtt)
+        self.assertIn("00:00:01,000 --> 00:00:02,500", srt)
+        self.assertIn("Hello world", srt)
+
+    def test_xml_to_srt(self) -> None:
+        xml = '<transcript><text start="1.0" dur="1.5">Hello &amp; world</text></transcript>'
+        srt = _xml_to_srt(xml)
+        self.assertIn("00:00:01,000 --> 00:00:02,500", srt)
+        self.assertIn("Hello & world", srt)
 
     def test_srt_to_text_dedupes_rolling_captions(self) -> None:
         srt = """1
