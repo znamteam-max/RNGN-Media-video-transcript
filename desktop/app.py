@@ -9,7 +9,7 @@ from pathlib import Path
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
-from downloader import download_media
+from downloader import QUALITY_OPTIONS, download_media
 from platforms import detect_platform, platform_folder
 from transcriber import LANGUAGES, MODEL_PROFILES, transcribe_media
 from youtube_subtitles import (
@@ -20,7 +20,7 @@ from youtube_subtitles import (
 )
 
 APP_NAME = "RNGN Media"
-APP_VERSION = "0.2.1"
+APP_VERSION = "0.2.2"
 
 
 def default_output_dir() -> Path:
@@ -53,6 +53,7 @@ class App:
 
         self.url = tk.StringVar()
         self.platform = tk.StringVar(value="Платформа определится автоматически")
+        self.quality = tk.StringVar(value="Лучшее доступное")
 
         self.media_file = tk.StringVar()
         self.model_profile = tk.StringVar(value="Точная — large-v3")
@@ -102,10 +103,8 @@ class App:
         row.pack(fill="x", pady=(4, 4))
         entry = ttk.Entry(row, textvariable=variable)
         entry.pack(side="left", fill="x", expand=True)
-        ttk.Button(row, text="Вставить", command=lambda: self._paste_url(variable)).pack(side="left", padx=(8, 0))
-        ttk.Button(row, text="Очистить", command=lambda: variable.set("")).pack(side="left", padx=(6, 0))
-        entry.bind("<Control-v>", lambda _e: self._paste_url(variable, return_break=True))
-        entry.bind("<Shift-Insert>", lambda _e: self._paste_url(variable, return_break=True))
+        ttk.Button(row, text="Очистить", command=lambda: variable.set("")).pack(side="left", padx=(8, 0))
+        entry.focus_set()
 
     def _output_row(self, parent: ttk.Frame, variable: tk.StringVar) -> None:
         row = ttk.Frame(parent)
@@ -122,7 +121,16 @@ class App:
         notebook.add(frame, text="Скачать медиа")
 
         self._url_row(frame, self.url, "Ссылка")
-        ttk.Label(frame, textvariable=self.platform).pack(anchor="w", pady=(0, 14))
+        ttk.Label(frame, textvariable=self.platform).pack(anchor="w", pady=(0, 10))
+
+        ttk.Label(frame, text="Качество видео").pack(anchor="w")
+        ttk.Combobox(
+            frame,
+            textvariable=self.quality,
+            values=list(QUALITY_OPTIONS),
+            state="readonly",
+        ).pack(fill="x", pady=(4, 14))
+
         self._output_row(frame, self.download_output)
 
         self.download_button = ttk.Button(frame, text="Скачать", command=self._start_download)
@@ -131,7 +139,7 @@ class App:
         ttk.Label(
             frame,
             text=(
-                "Платформу выбирать не нужно. Вставь ссылку — программа сама определит "
+                "Платформу выбирать не нужно. Вставь ссылку обычным Ctrl+V — программа сама определит "
                 "YouTube / VK / TikTok / Instagram / X. Видео при необходимости будет "
                 "подготовлено как MP4 H.264 + AAC для Premiere."
             ),
@@ -153,6 +161,10 @@ class App:
         ttk.Entry(frame, textvariable=self.media_file).pack(fill="x", pady=(4, 14))
 
         self._output_row(frame, self.transcript_output)
+        ttk.Label(
+            frame,
+            text="Исходный аудио/видеофайл используется на месте и не копируется в папку Transcripts.",
+        ).pack(anchor="w", pady=(0, 12))
 
         controls = ttk.Frame(frame)
         controls.pack(fill="x")
@@ -233,19 +245,6 @@ class App:
         self.subtitle_log.pack(fill="both", expand=True)
         self.subtitle_log.configure(state="disabled")
 
-    def _paste_url(self, variable: tk.StringVar, return_break: bool = False):
-        try:
-            value = self.root.clipboard_get()
-        except tk.TclError:
-            messagebox.showerror(APP_NAME, "В буфере обмена нет текста.")
-            return "break" if return_break else None
-        url = clean_pasted_url(value)
-        if not url:
-            messagebox.showerror(APP_NAME, "В буфере обмена не найден URL.")
-            return "break" if return_break else None
-        variable.set(url)
-        return "break" if return_break else None
-
     def _on_url_changed(self, *_args) -> None:
         value = self.url.get().strip()
         self.platform.set(
@@ -315,9 +314,10 @@ class App:
         out = Path(self.output_root.get()).expanduser()
         self._set_busy(True)
         self.status.set("Запускаю скачивание…")
-        threading.Thread(target=self._download_worker, args=(url, out), daemon=True).start()
+        quality = self.quality.get()
+        threading.Thread(target=self._download_worker, args=(url, out, quality), daemon=True).start()
 
-    def _download_worker(self, url: str, out: Path) -> None:
+    def _download_worker(self, url: str, out: Path, quality: str) -> None:
         try:
             outputs = download_media(
                 url,
@@ -325,6 +325,7 @@ class App:
                 status=lambda s: self._post("status", s),
                 progress=lambda p: self._post("progress", p),
                 log=lambda s: self._post("download_log", s),
+                quality=quality,
             )
             self._post("done", ("Скачивание завершено", outputs, "download_log"))
         except Exception as exc:
@@ -474,7 +475,15 @@ class App:
                     labels = [track.label for track in self.subtitle_tracks]
                     self.subtitle_track_combo.configure(values=labels)
                     if labels:
-                        self.subtitle_track_label.set(labels[0])
+                        original_index = next(
+                            (
+                                index
+                                for index, track in enumerate(self.subtitle_tracks)
+                                if track.language_code.lower().endswith("-orig")
+                            ),
+                            0,
+                        )
+                        self.subtitle_track_label.set(labels[original_index])
                     self.status.set(f"{info.title} · дорожек: {len(labels)}")
                     self._set_busy(False)
                 elif kind == "done":
