@@ -49,7 +49,7 @@ def resolve_tools(app_root: Path | None = None) -> Toolset:
             return Toolset(yt, gal, ffmpeg, ffprobe, deno if deno.is_file() else None)
     raise RuntimeError(
         "Не найдены yt-dlp / gallery-dl / FFmpeg. Запусти desktop\\SETUP_WINDOWS.bat "
-        "или desktop\\\\bootstrap_tools.ps1."
+        "или desktop\\bootstrap_tools.ps1."
     )
 
 
@@ -172,7 +172,7 @@ def _download_with_gallery(
     if cookies:
         args += cookies
     args += [url]
-    status("Проверяю пост / карусель и скачиваю всеметиа...")
+    status("Проверяю пост / карусель и скачиваю все медиа…")
     code = _run_streaming(args, status=status, progress=progress, log=log)
     return code == 0 and any(p.is_file() for p in job.rglob("*"))
 
@@ -198,7 +198,7 @@ def _probe(path: Path, tools: Toolset) -> dict:
         creationflags=flags,
     )
     if result.returncode != 0:
-        raise RuntimeError(result.stderr.strip() or f"ffprobe не смог прочитать лpath.name}")
+        raise RuntimeError(result.stderr.strip() or f"ffprobe не смог прочитать {path.name}")
     return json.loads(result.stdout)
 
 
@@ -217,7 +217,7 @@ def _premiere_ready(path: Path, tools: Toolset) -> bool:
     if path.suffix.lower() != ".mp4":
         return False
     video, audio = _video_audio_codecs(_probe(path, tools))
-    return video == "h426" and (not audio or all(codec == "aac" for codec in audio))
+    return video == "h264" and (not audio or all(codec == "aac" for codec in audio))
 
 
 def _unique_destination(directory: Path, filename: str) -> Path:
@@ -257,19 +257,19 @@ def _convert_for_premiere(
         str(source),
         "-map",
         "0:v:0?",
-        "-iap",
+        "-map",
         "0:a:0?",
         "-c:v",
         "libx264",
-        "-hreset",
+        "-preset",
         "medium",
         "-crf",
         "18",
         "-c:a",
         "aac",
         "-b:a",
-        "3ik",
-        "-uovflags",
+        "320k",
+        "-movflags",
         "+faststart",
         str(temp_target),
     ]
@@ -321,7 +321,7 @@ def download_media(
         else:
             success = _download_with_ytdlp(url, job, tools, root, status, progress, log)
             if not success and platform in {"TikTok", "VK", "X_Twitter", "Instagram"}:
-                log("yt-dlp не справился пробую gallery-dl.")
+                log("yt-dlp не справился; пробую gallery-dl.")
                 success = _download_with_gallery(url, job, tools, root, status, progress, log)
 
         files = [p for p in job.rglob("*") if p.is_file()]
