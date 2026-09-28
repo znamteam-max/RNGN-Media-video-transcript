@@ -21,7 +21,15 @@ LogCallback = Callable[[str], None]
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".mkv", ".webm", ".m4v", ".ts"}
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".avif"}
 
-QUALITY_OPTIONS = ("Лучшее доступное", "2160p", "1440p", "1080p", "720p", "480p", "360p")
+QUALITY_OPTIONS = (
+    "1080p — MP4 H.264 + AAC",
+    "2160p — MP4 H.264 + AAC",
+    "1440p — MP4 H.264 + AAC",
+    "720p — MP4 H.264 + AAC",
+    "480p — MP4 H.264 + AAC",
+    "360p — MP4 H.264 + AAC",
+    "Лучшее доступное — MP4 H.264 + AAC",
+)
 QUALITY_HEIGHTS = {"2160p": 2160, "1440p": 1440, "1080p": 1080, "720p": 720, "480p": 480, "360p": 360}
 
 
@@ -106,8 +114,19 @@ def _cookies_args(app_root: Path) -> list[str]:
     return []
 
 
+def _quality_key(quality: str) -> str:
+    value = (quality or "").strip()
+    for key in QUALITY_HEIGHTS:
+        if value.startswith(key):
+            return key
+    if value.startswith("Лучшее доступное"):
+        return "Лучшее доступное"
+    return value
+
+
 def _format_selector(quality: str) -> str:
-    height = QUALITY_HEIGHTS.get(quality)
+    quality_key = _quality_key(quality)
+    height = QUALITY_HEIGHTS.get(quality_key)
     if height:
         return (
             f"bestvideo[vcodec^=avc1][height<={height}]+bestaudio[acodec^=mp4a]/"
@@ -332,7 +351,7 @@ def download_media(
     progress: ProgressCallback = lambda _p: None,
     log: LogCallback = lambda _s: None,
     app_root: Path | None = None,
-    quality: str = "Лучшее доступное",
+    quality: str = "1080p — MP4 H.264 + AAC",
 ) -> list[Path]:
     url = url.strip()
     if not url:
