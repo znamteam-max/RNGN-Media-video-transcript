@@ -1,5 +1,5 @@
 @echo off
-cd /d "%~tp0"
+cd /d "%~dp0"
 if not exist .venv\Scripts\python.exe (
   echo Run SETUP_WINDOWS.bat first.
   pause
