@@ -146,7 +146,8 @@ class App:
             foreground=TEXT,
             font=("Segoe UI", 11, "bold"),
         )
-        style.configure("Card.TFrame", background=CARD)\n        style.configure("Card.TLabel", background=CARD, foreground=TEXT)
+        style.configure("Card.TFrame", background=CARD)
+        style.configure("Card.TLabel", background=CARD, foreground=TEXT)
         style.configure("Muted.Card.TLabel", background=CARD, foreground=MUTED)
         style.configure("Success.Card.TLabel", background=CARD, foreground=SUCCESS, font=("Segoe UI", 10, "bold"))
 
