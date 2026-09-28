@@ -58,7 +58,7 @@ class App:
 
         self.url = tk.StringVar()
         self.platform = tk.StringVar(value="Платформа определится автоматически")
-        self.quality = tk.StringVar(value="Лучшее доступное")
+        self.quality = tk.StringVar(value="1080p — MP4 H.264 + AAC")
 
         self.media_file = tk.StringVar()
         self.model_profile = tk.StringVar(value="Точная — large-v3")
