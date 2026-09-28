@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import os
 import queue
-import subprocess
 import threading
 import traceback
 from pathlib import Path
@@ -12,9 +10,15 @@ from tkinter import filedialog, messagebox, ttk
 from downloader import download_media
 from platforms import detect_platform
 from transcriber import LANGUAGES, MODEL_PROFILES, transcribe_media
+from youtube_subtitles import (
+    SubtitleInfo,
+    SubtitleTrack,
+    analyze_youtube_subtitles,
+    download_youtube_subtitle,
+)
 
 APP_NAME = "RNGN Media"
-APP_VERSION = "0.1.0"
+APP_VERSION = "0.2.0"
 
 
 def default_output_dir() -> Path:
@@ -27,19 +31,27 @@ class App:
     def __init__(self) -> None:
         self.root = tk.Tk()
         self.root.title(f"{APP_NAME} v{APP_VERSION}")
-        self.root.geometry("920x720")
-        self.root.minsize(820, 620)
+        self.root.geometry("960x760")
+        self.root.minsize(840, 650)
         self.events: queue.Queue[tuple[str, object]] = queue.Queue()
         self.busy = False
 
         self.output_root = tk.StringVar(value=str(default_output_dir()))
+
         self.url = tk.StringVar()
         self.platform = tk.StringVar(value="Платформа определится автоматически")
+
         self.media_file = tk.StringVar()
         self.model_profile = tk.StringVar(value="Точная — large-v3")
         self.language = tk.StringVar(value="Авто")
         self.timestamps = tk.BooleanVar(value=False)
         self.make_srt = tk.BooleanVar(value=True)
+
+        self.subtitle_url = tk.StringVar()
+        self.subtitle_track_label = tk.StringVar()
+        self.subtitle_info: SubtitleInfo | None = None
+        self.subtitle_tracks: list[SubtitleTrack] = []
+
         self.status = tk.StringVar(value="Готов к работе")
         self.progress = tk.IntVar(value=0)
 
@@ -54,7 +66,7 @@ class App:
         ttk.Label(outer, text="RNGN Media", font=("Segoe UI", 22, "bold")).pack(anchor="w")
         ttk.Label(
             outer,
-            text="Скачивание медиа + транскрибация в одной программе",
+            text="Скачать медиа · транскрибировать файл · получить готовые YouTube-субтитры",
             font=("Segoe UI", 10),
         ).pack(anchor="w", pady=(0, 14))
 
@@ -62,11 +74,12 @@ class App:
         notebook.pack(fill="both", expand=True)
         self._build_download_tab(notebook)
         self._build_transcribe_tab(notebook)
+        self._build_subtitles_tab(notebook)
 
         footer = ttk.Frame(outer)
         footer.pack(fill="x", pady=(12, 0))
         ttk.Label(footer, textvariable=self.status).pack(side="left")
-        ttk.Progressbar(footer, variable=self.progress, maximum=100, length=260).pack(side="right")
+        ttk.Progressbar(footer, variable=self.progress, maximum=100, length=280).pack(side="right")
 
     def _build_download_tab(self, notebook: ttk.Notebook) -> None:
         frame = ttk.Frame(notebook, padding=18)
@@ -89,12 +102,13 @@ class App:
             frame,
             text=(
                 "Платформу выбирать не нужно. Ссылка определяется автоматически: "
-                "YouTube / VK / TikTok / Instagram / X. Видео приводится к MP4 H.264 + AAC для Premiere."
+                "YouTube / VK / TikTok / Instagram / X. Видео после скачивания приводится "
+                "к MP4 H.264 + AAC для Premiere, изображения сохраняются без перекодирования."
             ),
-            wraplength=800,
+            wraplength=840,
         ).pack(anchor="w", pady=(14, 10))
 
-        self.download_log = tk.Text(frame, height=17, wrap="word")
+        self.download_log = tk.Text(frame, height=18, wrap="word")
         self.download_log.pack(fill="both", expand=True)
         self.download_log.configure(state="disabled")
 
@@ -130,13 +144,63 @@ class App:
 
         ttk.Label(
             frame,
-            text="Модель скачивается один раз. При доступной NVIDIA программа пробует GPU и автоматически откатывается на CPU при проблемах CUDA.",
-            wraplength=800,
+            text=(
+                "Модель скачивается один раз. При доступной NVIDIA программа пробует GPU "
+                "и автоматически переключается на CPU при проблемах CUDA."
+            ),
+            wraplength=840,
         ).pack(anchor="w", pady=(14, 10))
 
-        self.transcribe_log = tk.Text(frame, height=17, wrap="word")
+        self.transcribe_log = tk.Text(frame, height=18, wrap="word")
         self.transcribe_log.pack(fill="both", expand=True)
         self.transcribe_log.configure(state="disabled")
+
+    def _build_subtitles_tab(self, notebook: ttk.Notebook) -> None:
+        frame = ttk.Frame(notebook, padding=18)
+        notebook.add(frame, text="YouTube субтитры")
+
+        ttk.Label(frame, text="Ссылка на YouTube").pack(anchor="w")
+        ttk.Entry(frame, textvariable=self.subtitle_url).pack(fill="x", pady=(4, 10))
+
+        button_row = ttk.Frame(frame)
+        button_row.pack(fill="x")
+        self.subtitle_analyze_button = ttk.Button(
+            button_row,
+            text="Найти субтитры",
+            command=self._start_subtitle_analysis,
+        )
+        self.subtitle_analyze_button.pack(side="left")
+
+        ttk.Label(frame, text="Дорожка").pack(anchor="w", pady=(16, 4))
+        self.subtitle_track_combo = ttk.Combobox(
+            frame,
+            textvariable=self.subtitle_track_label,
+            values=[],
+            state="disabled",
+        )
+        self.subtitle_track_combo.pack(fill="x")
+
+        self.subtitle_download_button = ttk.Button(
+            frame,
+            text="Скачать TXT + SRT",
+            command=self._start_subtitle_download,
+            state="disabled",
+        )
+        self.subtitle_download_button.pack(anchor="w", pady=(14, 0))
+
+        ttk.Label(
+            frame,
+            text=(
+                "Этот режим не запускает Whisper. Он получает уже существующие дорожки YouTube, "
+                "отдельно показывает загруженные вручную и автоматические субтитры, а затем сохраняет "
+                "выбранную дорожку как SRT и обычный TXT."
+            ),
+            wraplength=840,
+        ).pack(anchor="w", pady=(14, 10))
+
+        self.subtitle_log = tk.Text(frame, height=18, wrap="word")
+        self.subtitle_log.pack(fill="both", expand=True)
+        self.subtitle_log.configure(state="disabled")
 
     def _on_url_changed(self, *_args) -> None:
         value = self.url.get().strip()
@@ -159,7 +223,17 @@ class App:
         state = "disabled" if busy else "normal"
         self.download_button.configure(state=state)
         self.transcribe_button.configure(state=state)
-        if not busy:
+        self.subtitle_analyze_button.configure(state=state)
+        if busy:
+            self.subtitle_track_combo.configure(state="disabled")
+            self.subtitle_download_button.configure(state="disabled")
+        else:
+            if self.subtitle_tracks:
+                self.subtitle_track_combo.configure(state="readonly")
+                self.subtitle_download_button.configure(state="normal")
+            else:
+                self.subtitle_track_combo.configure(state="disabled")
+                self.subtitle_download_button.configure(state="disabled")
             self.progress.set(0)
 
     def _post(self, kind: str, payload: object) -> None:
@@ -174,7 +248,7 @@ class App:
             return
         out = Path(self.output_root.get()).expanduser()
         self._set_busy(True)
-        self.status.set("Запускаю скачивание...")
+        self.status.set("Запускаю скачивание…")
         threading.Thread(target=self._download_worker, args=(url, out), daemon=True).start()
 
     def _download_worker(self, url: str, out: Path) -> None:
@@ -198,24 +272,103 @@ class App:
             messagebox.showerror(APP_NAME, "Выбери существующий аудио- или видеофайл.")
             return
         out = Path(self.output_root.get()).expanduser() / "Transcripts"
+        profile_name = self.model_profile.get()
+        language_name = self.language.get()
+        with_timestamps = self.timestamps.get()
+        make_srt = self.make_srt.get()
         self._set_busy(True)
-        self.status.set("Запускаю транскрибацию...")
-        threading.Thread(target=self._transcribe_worker, args=(media, out), daemon=True).start()
+        self.status.set("Запускаю транскрибацию…")
+        threading.Thread(
+            target=self._transcribe_worker,
+            args=(media, out, profile_name, language_name, with_timestamps, make_srt),
+            daemon=True,
+        ).start()
 
-    def _transcribe_worker(self, media: Path, out: Path) -> None:
+    def _transcribe_worker(
+        self,
+        media: Path,
+        out: Path,
+        profile_name: str,
+        language_name: str,
+        with_timestamps: bool,
+        make_srt: bool,
+    ) -> None:
         try:
             outputs = transcribe_media(
                 media,
                 out,
-                profile_name=self.model_profile.get(),
-                language_name=self.language.get(),
-                with_timestamps=self.timestamps.get(),
-                make_srt=self.make_srt.get(),
+                profile_name=profile_name,
+                language_name=language_name,
+                with_timestamps=with_timestamps,
+                make_srt=make_srt,
                 status=lambda s: self._post("status", s),
                 progress=lambda p: self._post("progress", p),
                 log=lambda s: self._post("transcribe_log", s),
             )
             self._post("done", ("Транскрибация завершена", outputs))
+        except Exception as exc:
+            self._post("error", f"{exc}\n\n{traceback.format_exc()}")
+
+    def _start_subtitle_analysis(self) -> None:
+        if self.busy:
+            return
+        url = self.subtitle_url.get().strip()
+        if not url:
+            messagebox.showerror(APP_NAME, "Вставь ссылку на YouTube.")
+            return
+        self.subtitle_info = None
+        self.subtitle_tracks = []
+        self.subtitle_track_label.set("")
+        self._set_busy(True)
+        self.status.set("Ищу субтитры YouTube…")
+        threading.Thread(target=self._subtitle_analysis_worker, args=(url,), daemon=True).start()
+
+    def _subtitle_analysis_worker(self, url: str) -> None:
+        try:
+            info = analyze_youtube_subtitles(
+                url,
+                status=lambda s: self._post("status", s),
+                progress=lambda p: self._post("progress", p),
+                log=lambda s: self._post("subtitle_log", s),
+            )
+            self._post("subtitle_tracks", info)
+        except Exception as exc:
+            self._post("error", f"{exc}\n\n{traceback.format_exc()}")
+
+    def _start_subtitle_download(self) -> None:
+        if self.busy:
+            return
+        if not self.subtitle_tracks or self.subtitle_info is None:
+            messagebox.showerror(APP_NAME, "Сначала нажми «Найти субтитры».")
+            return
+        selected = self.subtitle_track_label.get()
+        track = next((item for item in self.subtitle_tracks if item.label == selected), None)
+        if track is None:
+            messagebox.showerror(APP_NAME, "Выбери дорожку субтитров.")
+            return
+        url = self.subtitle_url.get().strip()
+        out = Path(self.output_root.get()).expanduser() / "YouTube_Subtitles"
+        title_hint = self.subtitle_info.title
+        self._set_busy(True)
+        self.status.set("Скачиваю выбранные субтитры…")
+        threading.Thread(
+            target=self._subtitle_download_worker,
+            args=(url, track, out, title_hint),
+            daemon=True,
+        ).start()
+
+    def _subtitle_download_worker(self, url: str, track: SubtitleTrack, out: Path, title_hint: str) -> None:
+        try:
+            outputs = download_youtube_subtitle(
+                url,
+                track,
+                out,
+                title_hint=title_hint,
+                status=lambda s: self._post("status", s),
+                progress=lambda p: self._post("progress", p),
+                log=lambda s: self._post("subtitle_log", s),
+            )
+            self._post("done", ("YouTube-субтитры сохранены", outputs))
         except Exception as exc:
             self._post("error", f"{exc}\n\n{traceback.format_exc()}")
 
@@ -237,6 +390,19 @@ class App:
                     self._append_log(self.download_log, str(payload))
                 elif kind == "transcribe_log":
                     self._append_log(self.transcribe_log, str(payload))
+                elif kind == "subtitle_log":
+                    self._append_log(self.subtitle_log, str(payload))
+                elif kind == "subtitle_tracks":
+                    info = payload
+                    assert isinstance(info, SubtitleInfo)
+                    self.subtitle_info = info
+                    self.subtitle_tracks = list(info.tracks)
+                    labels = [track.label for track in self.subtitle_tracks]
+                    self.subtitle_track_combo.configure(values=labels)
+                    if labels:
+                        self.subtitle_track_label.set(labels[0])
+                    self.status.set(f"{info.title} · дорожек: {len(labels)}")
+                    self._set_busy(False)
                 elif kind == "done":
                     title, outputs = payload  # type: ignore[misc]
                     self.progress.set(100)
