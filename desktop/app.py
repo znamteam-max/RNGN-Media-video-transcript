@@ -20,7 +20,7 @@ from youtube_subtitles import (
 )
 
 APP_NAME = "RNGN Media"
-APP_VERSION = "0.2.2"
+APP_VERSION = "0.2.3"
 
 
 def default_output_dir() -> Path:
@@ -35,6 +35,11 @@ def clean_pasted_url(value: str) -> str:
     if match:
         text = match.group(0)
     return text.rstrip(".,;)]}>")
+
+
+def is_paste_shortcut(keycode: int, keysym: str) -> bool:
+    key = (keysym or "").lower()
+    return keycode == 86 or key in {"v", "cyrillic_em", "м"}
 
 
 class App:
@@ -104,7 +109,37 @@ class App:
         entry = ttk.Entry(row, textvariable=variable)
         entry.pack(side="left", fill="x", expand=True)
         ttk.Button(row, text="Очистить", command=lambda: variable.set("")).pack(side="left", padx=(8, 0))
-        entry.focus_set()
+
+        def paste_clipboard(_event=None):
+            try:
+                value = self.root.clipboard_get()
+            except tk.TclError:
+                return "break"
+            url = clean_pasted_url(value)
+            if url:
+                variable.set(url)
+                entry.icursor("end")
+            return "break"
+
+        def control_key(event):
+            if is_paste_shortcut(getattr(event, "keycode", 0), getattr(event, "keysym", "")):
+                return paste_clipboard(event)
+            return None
+
+        menu = tk.Menu(entry, tearoff=False)
+        menu.add_command(label="Вставить", command=paste_clipboard)
+        menu.add_command(label="Копировать", command=lambda: entry.event_generate("<<Copy>>"))
+        menu.add_command(label="Вырезать", command=lambda: entry.event_generate("<<Cut>>"))
+
+        def show_menu(event):
+            entry.focus_set()
+            menu.tk_popup(event.x_root, event.y_root)
+
+        # Explicit Windows bindings are required because Tk can lose Ctrl+V
+        # when the active keyboard layout is Cyrillic.
+        entry.bind("<Control-KeyPress>", control_key, add="+")
+        entry.bind("<Shift-Insert>", paste_clipboard, add="+")
+        entry.bind("<Button-3>", show_menu)
 
     def _output_row(self, parent: ttk.Frame, variable: tk.StringVar) -> None:
         row = ttk.Frame(parent)
