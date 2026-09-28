@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import unittest
 
+from app import clean_pasted_url
+
 from platforms import detect_platform, platform_folder
 from transcriber import Word, _build_cues, _format_txt, _timestamp
 from youtube_subtitles import srt_to_text, tracks_from_info
@@ -94,3 +96,15 @@ class YoutubeSubtitleTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class UiHelpersTests(unittest.TestCase):
+    def test_clean_pasted_url(self) -> None:
+        self.assertEqual(
+            clean_pasted_url("  https://www.youtube.com/watch?v=abc&t=10s\n"),
+            "https://www.youtube.com/watch?v=abc&t=10s",
+        )
+        self.assertEqual(
+            clean_pasted_url("[video](https://x.com/name/status/123)"),
+            "https://x.com/name/status/123",
+        )
