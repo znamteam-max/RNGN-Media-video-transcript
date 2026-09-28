@@ -9,7 +9,7 @@ from pathlib import Path
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
-from downloader import QUALITY_OPTIONS, download_media
+from downloader import MediaAnalysis, analyze_media, download_media
 from platforms import detect_platform, platform_folder
 from transcriber import LANGUAGES, MODEL_PROFILES, transcribe_media
 from youtube_subtitles import (
@@ -20,7 +20,18 @@ from youtube_subtitles import (
 )
 
 APP_NAME = "RNGN Media"
-APP_VERSION = "0.2.3"
+APP_VERSION = "0.3.0"
+
+BG = "#F3F5F8"
+CARD = "#FFFFFF"
+TEXT = "#18212F"
+MUTED = "#697386"
+BORDER = "#D9E0E8"
+ACCENT = "#FF6B2C"
+ACCENT_DARK = "#E5571C"
+DARK = "#111827"
+LOG_FG = "#D7DEE8"
+SUCCESS = "#17834A"
 
 
 def default_output_dir() -> Path:
@@ -46,10 +57,16 @@ class App:
     def __init__(self) -> None:
         self.root = tk.Tk()
         self.root.title(f"{APP_NAME} v{APP_VERSION}")
-        self.root.geometry("980x780")
-        self.root.minsize(860, 680)
+        self.root.geometry("1040x820")
+        self.root.minsize(920, 720)
+        self.root.configure(bg=BG)
+
         self.events: queue.Queue[tuple[str, object]] = queue.Queue()
         self.busy = False
+        self.quality_analyzing = False
+        self.subtitle_analyzing = False
+        self.quality_after_id: str | None = None
+        self.subtitle_after_id: str | None = None
 
         self.output_root = tk.StringVar(value=str(default_output_dir()))
         self.download_output = tk.StringVar()
@@ -57,8 +74,10 @@ class App:
         self.subtitle_output = tk.StringVar()
 
         self.url = tk.StringVar()
-        self.platform = tk.StringVar(value="Платформа определится автоматически")
-        self.quality = tk.StringVar(value="1080p — MP4 H.264 + AAC")
+        self.platform = tk.StringVar(value="Вставь ссылку — платформа определится автоматически")
+        self.quality = tk.StringVar(value="")
+        self.quality_status = tk.StringVar(value="После вставки ссылки покажу только реально доступные варианты.")
+        self.quality_values: list[str] = []
 
         self.media_file = tk.StringVar()
         self.model_profile = tk.StringVar(value="Точная — large-v3")
@@ -70,26 +89,101 @@ class App:
         self.subtitle_track_label = tk.StringVar()
         self.subtitle_info: SubtitleInfo | None = None
         self.subtitle_tracks: list[SubtitleTrack] = []
+        self.subtitle_status = tk.StringVar(value="Вставь YouTube-ссылку — дорожки найдутся автоматически.")
 
         self.status = tk.StringVar(value="Готов к работе")
         self.progress = tk.IntVar(value=0)
 
+        self._configure_styles()
         self._build_ui()
+
         self.url.trace_add("write", self._on_url_changed)
+        self.subtitle_url.trace_add("write", self._on_subtitle_url_changed)
         self.output_root.trace_add("write", self._refresh_output_paths)
         self._refresh_output_paths()
         self.root.after(120, self._poll_events)
 
+    def _configure_styles(self) -> None:
+        style = ttk.Style(self.root)
+        try:
+            style.theme_use("clam")
+        except tk.TclError:
+            pass
+
+        style.configure(".", font=("Segoe UI", 10))
+        style.configure("App.TFrame", background=BG)
+        style.configure("Header.TFrame", background=DARK)
+        style.configure("HeaderTitle.TLabel", background=DARK, foreground="white", font=("Segoe UI", 24, "bold"))
+        style.configure("HeaderSub.TLabel", background=DARK, foreground="#C7D0DC", font=("Segoe UI", 10))
+        style.configure("Version.TLabel", background="#263244", foreground="#F8FAFC", padding=(8, 4), font=("Segoe UI", 9, "bold"))
+
+        style.configure("TNotebook", background=BG, borderwidth=0)
+        style.configure(
+            "TNotebook.Tab",
+            background="#E7EBF0",
+            foreground="#556274",
+            padding=(18, 10),
+            font=("Segoe UI", 10, "bold"),
+            borderwidth=0,
+        )
+        style.map(
+            "TNotebook.Tab",
+            background=[("selected", CARD), ("active", "#F0F3F6")],
+            foreground=[("selected", TEXT), ("active", TEXT)],
+        )
+
+        style.configure(
+            "Card.TLabelframe",
+            background=CARD,
+            bordercolor=BORDER,
+            borderwidth=1,
+            relief="solid",
+            padding=14,
+        )
+        style.configure(
+            "Card.TLabelframe.Label",
+            background=CARD,
+            foreground=TEXT,
+            font=("Segoe UI", 11, "bold"),
+        )
+        style.configure("Card.TLabel", background=CARD, foreground=TEXT)
+        style.configure("Muted.Card.TLabel", background=CARD, foreground=MUTED)
+        style.configure("Success.Card.TLabel", background=CARD, foreground=SUCCESS, font=("Segoe UI", 10, "bold"))
+
+        style.configure(
+            "Accent.TButton",
+            background=ACCENT,
+            foreground="white",
+            bordercolor=ACCENT,
+            padding=(16, 9),
+            font=("Segoe UI", 10, "bold"),
+        )
+        style.map(
+            "Accent.TButton",
+            background=[("active", ACCENT_DARK), ("disabled", "#E9A487")],
+            foreground=[("disabled", "#FFF4EF")],
+        )
+        style.configure("Secondary.TButton", padding=(12, 7))
+        style.configure("TEntry", fieldbackground="white", bordercolor=BORDER, padding=6)
+        style.configure("TCombobox", fieldbackground="white", bordercolor=BORDER, padding=5)
+        style.configure("Horizontal.TProgressbar", background=ACCENT, troughcolor="#E5EAF0", bordercolor="#E5EAF0")
+
     def _build_ui(self) -> None:
-        outer = ttk.Frame(self.root, padding=18)
+        outer = ttk.Frame(self.root, style="App.TFrame", padding=18)
         outer.pack(fill="both", expand=True)
 
-        ttk.Label(outer, text="RNGN Media", font=("Segoe UI", 22, "bold")).pack(anchor="w")
+        header = ttk.Frame(outer, style="Header.TFrame", padding=(20, 16))
+        header.pack(fill="x", pady=(0, 14))
+
+        header_text = ttk.Frame(header, style="Header.TFrame")
+        header_text.pack(side="left", fill="x", expand=True)
+        ttk.Label(header_text, text="RNGN Media", style="HeaderTitle.TLabel").pack(anchor="w")
         ttk.Label(
-            outer,
-            text="Скачать медиа · транскрибировать файл · получить готовые YouTube-субтитры",
-            font=("Segoe UI", 10),
-        ).pack(anchor="w", pady=(0, 14))
+            header_text,
+            text="Скачивание · транскрибация · YouTube-субтитры",
+            style="HeaderSub.TLabel",
+        ).pack(anchor="w", pady=(2, 0))
+        ttk.Label(header, text=f"v{APP_VERSION}", style="Version.TLabel").pack(side="right", anchor="n")
 
         notebook = ttk.Notebook(outer)
         notebook.pack(fill="both", expand=True)
@@ -97,18 +191,29 @@ class App:
         self._build_transcribe_tab(notebook)
         self._build_subtitles_tab(notebook)
 
-        footer = ttk.Frame(outer)
+        footer = ttk.Frame(outer, style="App.TFrame")
         footer.pack(fill="x", pady=(12, 0))
-        ttk.Label(footer, textvariable=self.status).pack(side="left")
+        ttk.Label(footer, textvariable=self.status, background=BG, foreground=MUTED).pack(side="left")
         ttk.Progressbar(footer, variable=self.progress, maximum=100, length=280).pack(side="right")
 
-    def _url_row(self, parent: ttk.Frame, variable: tk.StringVar, label: str) -> None:
-        ttk.Label(parent, text=label).pack(anchor="w")
-        row = ttk.Frame(parent)
-        row.pack(fill="x", pady=(4, 4))
+    def _tab_frame(self, notebook: ttk.Notebook, title: str) -> ttk.Frame:
+        frame = ttk.Frame(notebook, style="App.TFrame", padding=(6, 12))
+        notebook.add(frame, text=title)
+        return frame
+
+    def _card(self, parent: ttk.Frame, title: str) -> ttk.LabelFrame:
+        card = ttk.LabelFrame(parent, text=title, style="Card.TLabelframe")
+        card.pack(fill="x", pady=(0, 12))
+        return card
+
+    def _url_entry(self, parent: ttk.Frame, variable: tk.StringVar) -> ttk.Entry:
+        row = ttk.Frame(parent, style="App.TFrame")
+        row.pack(fill="x")
         entry = ttk.Entry(row, textvariable=variable)
         entry.pack(side="left", fill="x", expand=True)
-        ttk.Button(row, text="Очистить", command=lambda: variable.set("")).pack(side="left", padx=(8, 0))
+        ttk.Button(row, text="Очистить", style="Secondary.TButton", command=lambda: variable.set("")).pack(
+            side="left", padx=(8, 0)
+        )
 
         def paste_clipboard(_event=None):
             try:
@@ -135,165 +240,218 @@ class App:
             entry.focus_set()
             menu.tk_popup(event.x_root, event.y_root)
 
-        # Explicit Windows bindings are required because Tk can lose Ctrl+V
-        # when the active keyboard layout is Cyrillic.
         entry.bind("<Control-KeyPress>", control_key, add="+")
         entry.bind("<Shift-Insert>", paste_clipboard, add="+")
         entry.bind("<Button-3>", show_menu)
+        return entry
 
-    def _output_row(self, parent: ttk.Frame, variable: tk.StringVar) -> None:
-        row = ttk.Frame(parent)
+    def _output_controls(self, parent: ttk.Frame, variable: tk.StringVar) -> None:
+        row = ttk.Frame(parent, style="App.TFrame")
         row.pack(fill="x")
-        ttk.Label(row, text="Папка результата").pack(side="left")
-        ttk.Button(row, text="Изменить", command=self._choose_output).pack(side="right")
-        ttk.Button(row, text="Открыть папку", command=lambda: self._open_folder(Path(variable.get()))).pack(
-            side="right", padx=(0, 6)
+        ttk.Entry(row, textvariable=variable, state="readonly").pack(side="left", fill="x", expand=True)
+        ttk.Button(
+            row,
+            text="Открыть",
+            style="Secondary.TButton",
+            command=lambda: self._open_folder(Path(variable.get())),
+        ).pack(side="left", padx=(8, 0))
+        ttk.Button(row, text="Изменить", style="Secondary.TButton", command=self._choose_output).pack(
+            side="left", padx=(6, 0)
         )
-        ttk.Entry(parent, textvariable=variable, state="readonly").pack(fill="x", pady=(4, 14))
+
+    def _log_box(self, parent: ttk.Frame, height: int = 12) -> tk.Text:
+        log = tk.Text(
+            parent,
+            height=height,
+            wrap="word",
+            bg=DARK,
+            fg=LOG_FG,
+            insertbackground="white",
+            selectbackground="#334155",
+            relief="flat",
+            padx=10,
+            pady=10,
+            font=("Consolas", 9),
+        )
+        log.pack(fill="both", expand=True)
+        log.configure(state="disabled")
+        return log
 
     def _build_download_tab(self, notebook: ttk.Notebook) -> None:
-        frame = ttk.Frame(notebook, padding=18)
-        notebook.add(frame, text="Скачать медиа")
+        frame = self._tab_frame(notebook, "Скачать медиа")
 
-        self._url_row(frame, self.url, "Ссылка")
-        ttk.Label(frame, textvariable=self.platform).pack(anchor="w", pady=(0, 10))
+        source = self._card(frame, "1. Ссылка")
+        self.download_url_entry = self._url_entry(source, self.url)
+        ttk.Label(source, textvariable=self.platform, style="Muted.Card.TLabel").pack(anchor="w", pady=(8, 0))
 
-        ttk.Label(frame, text="Качество видео").pack(anchor="w")
-        ttk.Combobox(
-            frame,
-            textvariable=self.quality,
-            values=list(QUALITY_OPTIONS),
-            state="readonly",
-        ).pack(fill="x", pady=(4, 14))
+        quality = self._card(frame, "2. Качество")
+        self.quality_combo = ttk.Combobox(quality, textvariable=self.quality, values=[], state="disabled")
+        self.quality_combo.pack(fill="x")
+        quality_row = ttk.Frame(quality, style="App.TFrame")
+        quality_row.pack(fill="x", pady=(8, 0))
+        ttk.Label(quality_row, textvariable=self.quality_status, style="Muted.Card.TLabel").pack(side="left")
+        self.quality_refresh_button = ttk.Button(
+            quality_row,
+            text="Проверить ещё раз",
+            style="Secondary.TButton",
+            command=self._start_quality_analysis,
+        )
+        self.quality_refresh_button.pack(side="right")
 
-        self._output_row(frame, self.download_output)
+        output = self._card(frame, "3. Сохранение")
+        self._output_controls(output, self.download_output)
 
-        self.download_button = ttk.Button(frame, text="Скачать", command=self._start_download)
-        self.download_button.pack(anchor="w")
+        action = ttk.Frame(frame, style="App.TFrame")
+        action.pack(fill="x", pady=(0, 12))
+        self.download_button = ttk.Button(
+            action,
+            text="Скачать видео",
+            style="Accent.TButton",
+            command=self._start_download,
+            state="disabled",
+        )
+        self.download_button.pack(side="left")
 
-        ttk.Label(
-            frame,
-            text=(
-                "Платформу выбирать не нужно. Вставь ссылку обычным Ctrl+V — программа сама определит "
-                "YouTube / VK / TikTok / Instagram / X. Видео при необходимости будет "
-                "подготовлено как MP4 H.264 + AAC для Premiere."
-            ),
-            wraplength=860,
-        ).pack(anchor="w", pady=(14, 10))
-
-        self.download_log = tk.Text(frame, height=16, wrap="word")
-        self.download_log.pack(fill="both", expand=True)
-        self.download_log.configure(state="disabled")
+        log_card = self._card(frame, "Технический лог")
+        self.download_log = self._log_box(log_card, height=10)
 
     def _build_transcribe_tab(self, notebook: ttk.Notebook) -> None:
-        frame = ttk.Frame(notebook, padding=18)
-        notebook.add(frame, text="Транскрибировать")
+        frame = self._tab_frame(notebook, "Транскрибировать")
 
-        file_row = ttk.Frame(frame)
-        file_row.pack(fill="x")
-        ttk.Label(file_row, text="Аудио или видео").pack(side="left")
-        ttk.Button(file_row, text="Выбрать файл", command=self._choose_media).pack(side="right")
-        ttk.Entry(frame, textvariable=self.media_file).pack(fill="x", pady=(4, 14))
-
-        self._output_row(frame, self.transcript_output)
+        source = self._card(frame, "1. Исходный файл")
+        row = ttk.Frame(source, style="App.TFrame")
+        row.pack(fill="x")
+        ttk.Entry(row, textvariable=self.media_file).pack(side="left", fill="x", expand=True)
+        ttk.Button(row, text="Выбрать файл", style="Secondary.TButton", command=self._choose_media).pack(
+            side="left", padx=(8, 0)
+        )
         ttk.Label(
-            frame,
-            text="Исходный аудио/видеофайл используется на месте и не копируется в папку Transcripts.",
-        ).pack(anchor="w", pady=(0, 12))
+            source,
+            text="Видео не копируется: программа читает исходник на месте и создаёт только TXT/SRT.",
+            style="Muted.Card.TLabel",
+        ).pack(anchor="w", pady=(8, 0))
 
-        controls = ttk.Frame(frame)
-        controls.pack(fill="x")
-        left = ttk.Frame(controls)
-        left.pack(side="left", fill="x", expand=True, padx=(0, 8))
-        right = ttk.Frame(controls)
-        right.pack(side="left", fill="x", expand=True, padx=(8, 0))
+        settings = self._card(frame, "2. Настройки")
+        grid = ttk.Frame(settings, style="App.TFrame")
+        grid.pack(fill="x")
+        left = ttk.Frame(grid, style="App.TFrame")
+        left.pack(side="left", fill="x", expand=True, padx=(0, 7))
+        right = ttk.Frame(grid, style="App.TFrame")
+        right.pack(side="left", fill="x", expand=True, padx=(7, 0))
+        ttk.Label(left, text="Модель", style="Card.TLabel").pack(anchor="w")
+        ttk.Combobox(left, textvariable=self.model_profile, values=list(MODEL_PROFILES), state="readonly").pack(fill="x", pady=(4, 0))
+        ttk.Label(right, text="Язык", style="Card.TLabel").pack(anchor="w")
+        ttk.Combobox(right, textvariable=self.language, values=list(LANGUAGES), state="readonly").pack(fill="x", pady=(4, 0))
 
-        ttk.Label(left, text="Модель").pack(anchor="w")
-        ttk.Combobox(left, textvariable=self.model_profile, values=list(MODEL_PROFILES), state="readonly").pack(fill="x")
-        ttk.Label(right, text="Язык").pack(anchor="w")
-        ttk.Combobox(right, textvariable=self.language, values=list(LANGUAGES), state="readonly").pack(fill="x")
+        checks = ttk.Frame(settings, style="App.TFrame")
+        checks.pack(fill="x", pady=(12, 0))
+        ttk.Checkbutton(checks, text="Сделать SRT", variable=self.make_srt).pack(side="left")
+        ttk.Checkbutton(checks, text="Таймкоды в TXT", variable=self.timestamps).pack(side="left", padx=(18, 0))
 
-        options = ttk.Frame(frame)
-        options.pack(fill="x", pady=14)
-        ttk.Checkbutton(options, text="Сделать SRT", variable=self.make_srt).pack(side="left")
-        ttk.Checkbutton(options, text="Таймкоды в TXT", variable=self.timestamps).pack(side="left", padx=18)
+        output = self._card(frame, "3. Результат")
+        self._output_controls(output, self.transcript_output)
 
-        self.transcribe_button = ttk.Button(frame, text="Транскрибировать", command=self._start_transcribe)
-        self.transcribe_button.pack(anchor="w")
+        action = ttk.Frame(frame, style="App.TFrame")
+        action.pack(fill="x", pady=(0, 12))
+        self.transcribe_button = ttk.Button(
+            action,
+            text="Транскрибировать",
+            style="Accent.TButton",
+            command=self._start_transcribe,
+        )
+        self.transcribe_button.pack(side="left")
 
-        ttk.Label(
-            frame,
-            text=(
-                "Модель скачивается один раз. Если NVIDIA видна, но CUDA-библиотеки для Whisper "
-                "не установлены, программа сразу использует CPU вместо лишнего падения GPU-попытки."
-            ),
-            wraplength=860,
-        ).pack(anchor="w", pady=(14, 10))
-
-        self.transcribe_log = tk.Text(frame, height=14, wrap="word")
-        self.transcribe_log.pack(fill="both", expand=True)
-        self.transcribe_log.configure(state="disabled")
+        log_card = self._card(frame, "Технический лог")
+        self.transcribe_log = self._log_box(log_card, height=10)
 
     def _build_subtitles_tab(self, notebook: ttk.Notebook) -> None:
-        frame = ttk.Frame(notebook, padding=18)
-        notebook.add(frame, text="YouTube субтитры")
+        frame = self._tab_frame(notebook, "YouTube субтитры")
 
-        self._url_row(frame, self.subtitle_url, "Ссылка на YouTube")
-        self._output_row(frame, self.subtitle_output)
-
-        button_row = ttk.Frame(frame)
-        button_row.pack(fill="x")
+        source = self._card(frame, "1. YouTube-ссылка")
+        self.subtitle_url_entry = self._url_entry(source, self.subtitle_url)
+        subtitle_row = ttk.Frame(source, style="App.TFrame")
+        subtitle_row.pack(fill="x", pady=(8, 0))
+        ttk.Label(subtitle_row, textvariable=self.subtitle_status, style="Muted.Card.TLabel").pack(side="left")
         self.subtitle_analyze_button = ttk.Button(
-            button_row,
-            text="Найти субтитры",
+            subtitle_row,
+            text="Обновить дорожки",
+            style="Secondary.TButton",
             command=self._start_subtitle_analysis,
         )
-        self.subtitle_analyze_button.pack(side="left")
+        self.subtitle_analyze_button.pack(side="right")
 
-        ttk.Label(frame, text="Дорожка").pack(anchor="w", pady=(16, 4))
+        track_card = self._card(frame, "2. Дорожка")
         self.subtitle_track_combo = ttk.Combobox(
-            frame,
+            track_card,
             textvariable=self.subtitle_track_label,
             values=[],
             state="disabled",
         )
         self.subtitle_track_combo.pack(fill="x")
 
+        output = self._card(frame, "3. Результат")
+        self._output_controls(output, self.subtitle_output)
+
+        action = ttk.Frame(frame, style="App.TFrame")
+        action.pack(fill="x", pady=(0, 12))
         self.subtitle_download_button = ttk.Button(
-            frame,
-            text="Скачать TXT + SRT",
+            action,
+            text="Сохранить TXT + SRT",
+            style="Accent.TButton",
             command=self._start_subtitle_download,
             state="disabled",
         )
-        self.subtitle_download_button.pack(anchor="w", pady=(14, 0))
+        self.subtitle_download_button.pack(side="left")
 
-        ttk.Label(
-            frame,
-            text=(
-                "Этот режим не запускает Whisper: он берёт уже существующие YouTube-субтитры. "
-                "После сохранения точный путь появится в логе и программа предложит открыть папку."
-            ),
-            wraplength=860,
-        ).pack(anchor="w", pady=(14, 10))
-
-        self.subtitle_log = tk.Text(frame, height=14, wrap="word")
-        self.subtitle_log.pack(fill="both", expand=True)
-        self.subtitle_log.configure(state="disabled")
+        log_card = self._card(frame, "Технический лог")
+        self.subtitle_log = self._log_box(log_card, height=10)
 
     def _on_url_changed(self, *_args) -> None:
-        value = self.url.get().strip()
+        value = clean_pasted_url(self.url.get())
+        platform = detect_platform(value) if value else ""
         self.platform.set(
-            f"Определено автоматически: {detect_platform(value)}" if value else "Платформа определится автоматически"
+            f"Определено: {platform}" if platform and platform != "Other"
+            else ("Ссылка пока не распознана" if value else "Вставь ссылку — платформа определится автоматически")
         )
         self._refresh_output_paths()
+
+        if self.quality_after_id:
+            self.root.after_cancel(self.quality_after_id)
+            self.quality_after_id = None
+
+        self.quality_values = []
+        self.quality_combo.configure(values=[], state="disabled")
+        self.quality.set("")
+        self.download_button.configure(state="disabled")
+
+        if platform and platform != "Other":
+            self.quality_status.set("Проверяю реальные форматы источника…")
+            self.quality_after_id = self.root.after(650, lambda snapshot=value: self._start_quality_analysis(snapshot))
+        else:
+            self.quality_status.set("После вставки ссылки покажу только реально доступные варианты.")
+
+    def _on_subtitle_url_changed(self, *_args) -> None:
+        value = clean_pasted_url(self.subtitle_url.get())
+        if self.subtitle_after_id:
+            self.root.after_cancel(self.subtitle_after_id)
+            self.subtitle_after_id = None
+
+        self.subtitle_info = None
+        self.subtitle_tracks = []
+        self.subtitle_track_label.set("")
+        self.subtitle_track_combo.configure(values=[], state="disabled")
+        self.subtitle_download_button.configure(state="disabled")
+
+        if value and detect_platform(value) == "YouTube":
+            self.subtitle_status.set("Ищу оригинальные дорожки…")
+            self.subtitle_after_id = self.root.after(500, lambda snapshot=value: self._start_subtitle_analysis(snapshot))
+        else:
+            self.subtitle_status.set("Вставь YouTube-ссылку — дорожки найдутся автоматически.")
 
     def _refresh_output_paths(self, *_args) -> None:
         root = Path(self.output_root.get() or default_output_dir()).expanduser()
         platform = detect_platform(self.url.get().strip()) if self.url.get().strip() else ""
-        if platform and platform != "Other":
-            self.download_output.set(str(root / platform_folder(platform)))
-        else:
-            self.download_output.set(str(root))
+        self.download_output.set(str(root / platform_folder(platform)) if platform and platform != "Other" else str(root))
         self.transcript_output.set(str(root / "Transcripts"))
         self.subtitle_output.set(str(root / "YouTube_Subtitles"))
 
@@ -319,37 +477,60 @@ class App:
 
     def _set_busy(self, busy: bool) -> None:
         self.busy = busy
-        state = "disabled" if busy else "normal"
-        self.download_button.configure(state=state)
-        self.transcribe_button.configure(state=state)
-        self.subtitle_analyze_button.configure(state=state)
+        self.transcribe_button.configure(state="disabled" if busy else "normal")
         if busy:
-            self.subtitle_track_combo.configure(state="disabled")
+            self.download_button.configure(state="disabled")
             self.subtitle_download_button.configure(state="disabled")
         else:
-            if self.subtitle_tracks:
-                self.subtitle_track_combo.configure(state="readonly")
+            if self.quality_values and not self.quality_analyzing:
+                self.download_button.configure(state="normal")
+            if self.subtitle_tracks and not self.subtitle_analyzing:
                 self.subtitle_download_button.configure(state="normal")
-            else:
-                self.subtitle_track_combo.configure(state="disabled")
-                self.subtitle_download_button.configure(state="disabled")
+        if not busy:
             self.progress.set(0)
 
     def _post(self, kind: str, payload: object) -> None:
         self.events.put((kind, payload))
 
+    def _start_quality_analysis(self, url: str | None = None) -> None:
+        if self.quality_analyzing:
+            return
+        target = clean_pasted_url(url or self.url.get())
+        if not target or detect_platform(target) == "Other":
+            return
+        self.quality_analyzing = True
+        self.quality_combo.configure(state="disabled")
+        self.download_button.configure(state="disabled")
+        self.quality_status.set("Проверяю реальные варианты качества…")
+        threading.Thread(target=self._quality_worker, args=(target,), daemon=True).start()
+
+    def _quality_worker(self, url: str) -> None:
+        try:
+            analysis = analyze_media(
+                url,
+                status=lambda s: self._post("quality_status", s),
+                progress=lambda _p: None,
+                log=lambda s: self._post("download_log", s),
+            )
+            self._post("media_analysis", (url, analysis))
+        except Exception as exc:
+            self._post("quality_error", (url, str(exc)))
+
     def _start_download(self) -> None:
         if self.busy:
             return
         url = clean_pasted_url(self.url.get())
-        self.url.set(url)
         if not url:
             messagebox.showerror(APP_NAME, "Вставь ссылку.")
             return
+        if not self.quality.get():
+            messagebox.showerror(APP_NAME, "Сначала дождись определения доступного качества.")
+            return
+
         out = Path(self.output_root.get()).expanduser()
+        quality = self.quality.get()
         self._set_busy(True)
         self.status.set("Запускаю скачивание…")
-        quality = self.quality.get()
         threading.Thread(target=self._download_worker, args=(url, out, quality), daemon=True).start()
 
     def _download_worker(self, url: str, out: Path, quality: str) -> None:
@@ -373,16 +554,20 @@ class App:
         if not media.is_file():
             messagebox.showerror(APP_NAME, "Выбери существующий аудио- или видеофайл.")
             return
+
         out = Path(self.transcript_output.get()).expanduser()
-        profile_name = self.model_profile.get()
-        language_name = self.language.get()
-        with_timestamps = self.timestamps.get()
-        make_srt = self.make_srt.get()
         self._set_busy(True)
         self.status.set("Запускаю транскрибацию…")
         threading.Thread(
             target=self._transcribe_worker,
-            args=(media, out, profile_name, language_name, with_timestamps, make_srt),
+            args=(
+                media,
+                out,
+                self.model_profile.get(),
+                self.language.get(),
+                self.timestamps.get(),
+                self.make_srt.get(),
+            ),
             daemon=True,
         ).start()
 
@@ -411,52 +596,51 @@ class App:
         except Exception as exc:
             self._post("error", f"{exc}\n\n{traceback.format_exc()}")
 
-    def _start_subtitle_analysis(self) -> None:
-        if self.busy:
+    def _start_subtitle_analysis(self, url: str | None = None) -> None:
+        if self.subtitle_analyzing:
             return
-        url = clean_pasted_url(self.subtitle_url.get())
-        self.subtitle_url.set(url)
-        if not url:
-            messagebox.showerror(APP_NAME, "Вставь ссылку на YouTube.")
+        target = clean_pasted_url(url or self.subtitle_url.get())
+        if not target or detect_platform(target) != "YouTube":
             return
-        self.subtitle_info = None
-        self.subtitle_tracks = []
-        self.subtitle_track_label.set("")
-        self._set_busy(True)
-        self.status.set("Ищу субтитры YouTube…")
-        threading.Thread(target=self._subtitle_analysis_worker, args=(url,), daemon=True).start()
+        self.subtitle_analyzing = True
+        self.subtitle_analyze_button.configure(state="disabled")
+        self.subtitle_track_combo.configure(state="disabled")
+        self.subtitle_download_button.configure(state="disabled")
+        self.subtitle_status.set("Ищу оригинальные дорожки YouTube…")
+        threading.Thread(target=self._subtitle_analysis_worker, args=(target,), daemon=True).start()
 
     def _subtitle_analysis_worker(self, url: str) -> None:
         try:
             info = analyze_youtube_subtitles(
                 url,
-                status=lambda s: self._post("status", s),
-                progress=lambda p: self._post("progress", p),
+                status=lambda s: self._post("subtitle_status", s),
+                progress=lambda _p: None,
                 log=lambda s: self._post("subtitle_log", s),
             )
-            self._post("subtitle_tracks", info)
+            self._post("subtitle_tracks", (url, info))
         except Exception as exc:
-            self._post("error", f"{exc}\n\n{traceback.format_exc()}")
+            self._post("subtitle_error", (url, str(exc)))
 
     def _start_subtitle_download(self) -> None:
         if self.busy:
             return
         if not self.subtitle_tracks or self.subtitle_info is None:
-            messagebox.showerror(APP_NAME, "Сначала нажми «Найти субтитры».")
+            messagebox.showerror(APP_NAME, "Сначала дождись списка дорожек.")
             return
+
         selected = self.subtitle_track_label.get()
         track = next((item for item in self.subtitle_tracks if item.label == selected), None)
         if track is None:
             messagebox.showerror(APP_NAME, "Выбери дорожку субтитров.")
             return
+
         url = clean_pasted_url(self.subtitle_url.get())
         out = Path(self.subtitle_output.get()).expanduser()
-        title_hint = self.subtitle_info.title
         self._set_busy(True)
-        self.status.set("Скачиваю выбранные субтитры…")
+        self.status.set("Сохраняю субтитры…")
         threading.Thread(
             target=self._subtitle_download_worker,
-            args=(url, track, out, title_hint),
+            args=(url, track, out, self.subtitle_info.title),
             daemon=True,
         ).start()
 
@@ -492,38 +676,82 @@ class App:
         try:
             while True:
                 kind, payload = self.events.get_nowait()
+
                 if kind == "status":
                     self.status.set(str(payload))
                 elif kind == "progress":
                     self.progress.set(int(payload))
+                elif kind == "quality_status":
+                    self.quality_status.set(str(payload))
+                elif kind == "subtitle_status":
+                    self.subtitle_status.set(str(payload))
                 elif kind == "download_log":
                     self._append_log(self.download_log, str(payload))
                 elif kind == "transcribe_log":
                     self._append_log(self.transcribe_log, str(payload))
                 elif kind == "subtitle_log":
                     self._append_log(self.subtitle_log, str(payload))
+
+                elif kind == "media_analysis":
+                    url, analysis = payload  # type: ignore[misc]
+                    self.quality_analyzing = False
+                    if clean_pasted_url(self.url.get()) != url:
+                        continue
+                    assert isinstance(analysis, MediaAnalysis)
+                    self.quality_values = [choice.label for choice in analysis.choices]
+                    self.quality_combo.configure(values=self.quality_values, state="readonly")
+                    self.quality.set(analysis.default_label)
+                    self.quality_status.set(
+                        f"Проверено по источнику · доступно вариантов: {len(self.quality_values)}"
+                    )
+                    if not self.busy:
+                        self.download_button.configure(state="normal")
+
+                elif kind == "quality_error":
+                    url, error = payload  # type: ignore[misc]
+                    self.quality_analyzing = False
+                    if clean_pasted_url(self.url.get()) != url:
+                        continue
+                    fallback = "Лучшее доступное — без предварительного анализа → MP4 H.264 + AAC"
+                    self.quality_values = [fallback]
+                    self.quality_combo.configure(values=self.quality_values, state="readonly")
+                    self.quality.set(fallback)
+                    self.quality_status.set(f"Не удалось получить список форматов: {error}")
+                    if not self.busy:
+                        self.download_button.configure(state="normal")
+
                 elif kind == "subtitle_tracks":
-                    info = payload
+                    url, info = payload  # type: ignore[misc]
+                    self.subtitle_analyzing = False
+                    self.subtitle_analyze_button.configure(state="normal")
+                    if clean_pasted_url(self.subtitle_url.get()) != url:
+                        continue
                     assert isinstance(info, SubtitleInfo)
                     self.subtitle_info = info
                     self.subtitle_tracks = list(info.tracks)
                     labels = [track.label for track in self.subtitle_tracks]
-                    self.subtitle_track_combo.configure(values=labels)
+                    self.subtitle_track_combo.configure(values=labels, state="readonly")
                     if labels:
                         original_index = next(
-                            (
-                                index
-                                for index, track in enumerate(self.subtitle_tracks)
-                                if track.language_code.lower().endswith("-orig")
-                            ),
+                            (index for index, track in enumerate(self.subtitle_tracks) if track.is_original),
                             0,
                         )
                         self.subtitle_track_label.set(labels[original_index])
-                    self.status.set(f"{info.title} · дорожек: {len(labels)}")
-                    self._set_busy(False)
+                        if not self.busy:
+                            self.subtitle_download_button.configure(state="normal")
+                    self.subtitle_status.set(f"{info.title} · дорожек: {len(labels)}")
+
+                elif kind == "subtitle_error":
+                    url, error = payload  # type: ignore[misc]
+                    self.subtitle_analyzing = False
+                    self.subtitle_analyze_button.configure(state="normal")
+                    if clean_pasted_url(self.subtitle_url.get()) != url:
+                        continue
+                    self.subtitle_status.set(f"Не удалось получить дорожки: {error}")
+
                 elif kind == "done":
                     title, outputs, channel = payload  # type: ignore[misc]
-                    outputs = [Path(p) for p in outputs]
+                    outputs = [Path(path) for path in outputs]
                     self.progress.set(100)
                     self.status.set(str(title))
                     self._set_busy(False)
@@ -532,19 +760,22 @@ class App:
                     self._append_log(widget, "СОХРАНЕНО:")
                     for path in outputs:
                         self._append_log(widget, str(path))
-                    paths = "\n".join(str(p) for p in outputs)
+                    paths = "\n".join(str(path) for path in outputs)
                     open_now = messagebox.askyesno(
                         APP_NAME,
                         f"{title}\n\n{paths}\n\nОткрыть папку с результатом?",
                     )
                     if open_now and outputs:
                         self._open_folder(outputs[0].parent)
+
                 elif kind == "error":
                     self._set_busy(False)
                     self.status.set("Ошибка")
                     messagebox.showerror(APP_NAME, str(payload))
+
         except queue.Empty:
             pass
+
         self.root.after(120, self._poll_events)
 
     def run(self) -> None:
