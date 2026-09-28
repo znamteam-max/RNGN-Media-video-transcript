@@ -12,7 +12,7 @@ function Download-File([string]$Url, [string]$Out) {
 
 try {
     Download-File "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe" (Join-Path $Bin "yt-dlp.exe")
-    Download-File "https://github.com/mikf/gallery-dl/releases/latest/download/gallery-dl.exe" (Join-Path $Bin "gallery-dl.exe")
+    Download-File "https://github.com/gdl-org/builds/releases/latest/download/gallery-dl_windows.exe" (Join-Path $Bin "gallery-dl.exe")
 
     $DenoZip = Join-Path $Temp "deno.zip"
     Download-File "https://github.com/denoland/deno/releases/latest/download/deno-x86_64-pc-windows-msvc.zip" $DenoZip
