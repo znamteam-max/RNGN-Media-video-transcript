@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Iterable
@@ -19,6 +20,9 @@ LogCallback = Callable[[str], None]
 
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".mkv", ".webm", ".m4v", ".ts"}
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".avif"}
+
+QUALITY_OPTIONS = ("Лучшее доступное", "2160p", "1440p", "1080p", "720p", "480p", "360p")
+QUALITY_HEIGHTS = {"2160p": 2160, "1440p": 1440, "1080p": 1080, "720p": 720, "480p": 480, "360p": 360}
 
 
 @dataclass(frozen=True)
@@ -102,6 +106,17 @@ def _cookies_args(app_root: Path) -> list[str]:
     return []
 
 
+def _format_selector(quality: str) -> str:
+    height = QUALITY_HEIGHTS.get(quality)
+    if height:
+        return (
+            f"bestvideo[vcodec^=avc1][height<={height}]+bestaudio[acodec^=mp4a]/"
+            f"bestvideo[height<={height}]+bestaudio/"
+            f"best[height<={height}]/best"
+        )
+    return "bestvideo+bestaudio/best[acodec!=none]/best"
+
+
 def _download_with_ytdlp(
     url: str,
     job: Path,
@@ -110,7 +125,9 @@ def _download_with_ytdlp(
     status: StatusCallback,
     progress: ProgressCallback,
     log: LogCallback,
+    quality: str,
 ) -> bool:
+    format_selector = _format_selector(quality)
     args = [
         str(tools.yt_dlp),
         "--ignore-config",
@@ -128,7 +145,7 @@ def _download_with_ytdlp(
         "-N",
         "4",
         "-f",
-        "bestvideo+bestaudio/best[acodec!=none]/best",
+        format_selector,
         "--merge-output-format",
         "mp4",
         "--remux-video",
@@ -140,9 +157,9 @@ def _download_with_ytdlp(
         args += ["--js-runtimes", f"deno:{tools.deno}"]
     args += _cookies_args(app_root)
     args += [url]
-    status("Скачиваю лучшее доступное качество…")
+    status(f"Скачиваю: {quality}…")
+    log(f"Качество: {quality}")
     return _run_streaming(args, status=status, progress=progress, log=log) == 0
-
 
 def _download_with_gallery(
     url: str,
@@ -246,13 +263,25 @@ def _convert_for_premiere(
     log: LogCallback,
 ) -> Path:
     destination_dir.mkdir(parents=True, exist_ok=True)
-    if _premiere_ready(source, tools):
+    info = _probe(source, tools)
+    video_codec, audio_codecs = _video_audio_codecs(info)
+
+    if source.suffix.lower() == ".mp4" and video_codec == "h264" and (
+        not audio_codecs or all(codec == "aac" for codec in audio_codecs)
+    ):
         target = _unique_destination(destination_dir, source.name)
         shutil.move(str(source), target)
         return target
 
     target = _unique_destination(destination_dir, source.with_suffix(".mp4").name)
-    temp_target = target.with_name(target.stem + ".partial.mp4")
+    temp_target = destination_dir / f".rngn-{uuid.uuid4().hex}.partial.mp4"
+
+    video_args = ["-c:v", "copy"] if video_codec == "h264" else [
+        "-c:v", "libx264", "-preset", "medium", "-crf", "18"
+    ]
+    audio_ready = bool(audio_codecs) and all(codec == "aac" for codec in audio_codecs)
+    audio_args = ["-c:a", "copy"] if audio_ready else ["-c:a", "aac", "-b:a", "320k"]
+
     command = [
         str(tools.ffmpeg),
         "-hide_banner",
@@ -263,27 +292,30 @@ def _convert_for_premiere(
         "0:v:0?",
         "-map",
         "0:a:0?",
-        "-c:v",
-        "libx264",
-        "-preset",
-        "medium",
-        "-crf",
-        "18",
-        "-c:a",
-        "aac",
-        "-b:a",
-        "320k",
+        "-sn",
+        "-dn",
+        *video_args,
+        *audio_args,
         "-movflags",
         "+faststart",
         str(temp_target),
     ]
     status(f"Готовлю для Premiere: {source.name}")
-    code = _run_streaming(command, status=status, progress=progress, log=log)
+    ffmpeg_lines: list[str] = []
+
+    def capture(line: str) -> None:
+        ffmpeg_lines.append(line)
+        log(line)
+
+    code = _run_streaming(command, status=status, progress=progress, log=capture)
     if code != 0 or not temp_target.exists():
-        raise RuntimeError(f"FFmpeg не смог подготовить {source.name} для Premiere")
+        temp_target.unlink(missing_ok=True)
+        detail = "\n".join(ffmpeg_lines[-12:]).strip()
+        suffix = f"\n\nПоследние строки FFmpeg:\n{detail}" if detail else ""
+        raise RuntimeError(f"FFmpeg не смог подготовить {source.name} для Premiere.{suffix}")
+
     temp_target.replace(target)
     return target
-
 
 def _move_image(source: Path, destination_dir: Path) -> Path:
     destination_dir.mkdir(parents=True, exist_ok=True)
@@ -300,6 +332,7 @@ def download_media(
     progress: ProgressCallback = lambda _p: None,
     log: LogCallback = lambda _s: None,
     app_root: Path | None = None,
+    quality: str = "Лучшее доступное",
 ) -> list[Path]:
     url = url.strip()
     if not url:
@@ -321,9 +354,9 @@ def download_media(
             success = _download_with_gallery(url, job, tools, root, status, progress, log)
             if not success:
                 log("gallery-dl не справился; пробую yt-dlp.")
-                success = _download_with_ytdlp(url, job, tools, root, status, progress, log)
+                success = _download_with_ytdlp(url, job, tools, root, status, progress, log, quality)
         else:
-            success = _download_with_ytdlp(url, job, tools, root, status, progress, log)
+            success = _download_with_ytdlp(url, job, tools, root, status, progress, log, quality)
             if not success and platform in {"TikTok", "VK", "X_Twitter", "Instagram"}:
                 log("yt-dlp не справился; пробую gallery-dl.")
                 success = _download_with_gallery(url, job, tools, root, status, progress, log)
