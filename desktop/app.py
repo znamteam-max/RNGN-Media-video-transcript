@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 import queue
+import re
 import threading
 import traceback
 from pathlib import Path
@@ -8,7 +10,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
 from downloader import download_media
-from platforms import detect_platform
+from platforms import detect_platform, platform_folder
 from transcriber import LANGUAGES, MODEL_PROFILES, transcribe_media
 from youtube_subtitles import (
     SubtitleInfo,
@@ -18,7 +20,7 @@ from youtube_subtitles import (
 )
 
 APP_NAME = "RNGN Media"
-APP_VERSION = "0.2.0"
+APP_VERSION = "0.2.1"
 
 
 def default_output_dir() -> Path:
@@ -27,16 +29,27 @@ def default_output_dir() -> Path:
     return base / "RNGN Media"
 
 
+def clean_pasted_url(value: str) -> str:
+    text = (value or "").strip()
+    match = re.search(r"https?://[^\s<>\"']+", text)
+    if match:
+        text = match.group(0)
+    return text.rstrip(".,;)]}>")
+
+
 class App:
     def __init__(self) -> None:
         self.root = tk.Tk()
         self.root.title(f"{APP_NAME} v{APP_VERSION}")
-        self.root.geometry("960x760")
-        self.root.minsize(840, 650)
+        self.root.geometry("980x780")
+        self.root.minsize(860, 680)
         self.events: queue.Queue[tuple[str, object]] = queue.Queue()
         self.busy = False
 
         self.output_root = tk.StringVar(value=str(default_output_dir()))
+        self.download_output = tk.StringVar()
+        self.transcript_output = tk.StringVar()
+        self.subtitle_output = tk.StringVar()
 
         self.url = tk.StringVar()
         self.platform = tk.StringVar(value="Платформа определится автоматически")
@@ -57,6 +70,8 @@ class App:
 
         self._build_ui()
         self.url.trace_add("write", self._on_url_changed)
+        self.output_root.trace_add("write", self._refresh_output_paths)
+        self._refresh_output_paths()
         self.root.after(120, self._poll_events)
 
     def _build_ui(self) -> None:
@@ -81,19 +96,34 @@ class App:
         ttk.Label(footer, textvariable=self.status).pack(side="left")
         ttk.Progressbar(footer, variable=self.progress, maximum=100, length=280).pack(side="right")
 
+    def _url_row(self, parent: ttk.Frame, variable: tk.StringVar, label: str) -> None:
+        ttk.Label(parent, text=label).pack(anchor="w")
+        row = ttk.Frame(parent)
+        row.pack(fill="x", pady=(4, 4))
+        entry = ttk.Entry(row, textvariable=variable)
+        entry.pack(side="left", fill="x", expand=True)
+        ttk.Button(row, text="Вставить", command=lambda: self._paste_url(variable)).pack(side="left", padx=(8, 0))
+        ttk.Button(row, text="Очистить", command=lambda: variable.set("")).pack(side="left", padx=(6, 0))
+        entry.bind("<Control-v>", lambda _e: self._paste_url(variable, return_break=True))
+        entry.bind("<Shift-Insert>", lambda _e: self._paste_url(variable, return_break=True))
+
+    def _output_row(self, parent: ttk.Frame, variable: tk.StringVar) -> None:
+        row = ttk.Frame(parent)
+        row.pack(fill="x")
+        ttk.Label(row, text="Папка результата").pack(side="left")
+        ttk.Button(row, text="Изменить", command=self._choose_output).pack(side="right")
+        ttk.Button(row, text="Открыть папку", command=lambda: self._open_folder(Path(variable.get()))).pack(
+            side="right", padx=(0, 6)
+        )
+        ttk.Entry(parent, textvariable=variable, state="readonly").pack(fill="x", pady=(4, 14))
+
     def _build_download_tab(self, notebook: ttk.Notebook) -> None:
         frame = ttk.Frame(notebook, padding=18)
         notebook.add(frame, text="Скачать медиа")
 
-        ttk.Label(frame, text="Ссылка").pack(anchor="w")
-        ttk.Entry(frame, textvariable=self.url).pack(fill="x", pady=(4, 4))
+        self._url_row(frame, self.url, "Ссылка")
         ttk.Label(frame, textvariable=self.platform).pack(anchor="w", pady=(0, 14))
-
-        row = ttk.Frame(frame)
-        row.pack(fill="x")
-        ttk.Label(row, text="Куда сохранять").pack(side="left")
-        ttk.Button(row, text="Выбрать папку", command=self._choose_output).pack(side="right")
-        ttk.Entry(frame, textvariable=self.output_root).pack(fill="x", pady=(4, 14))
+        self._output_row(frame, self.download_output)
 
         self.download_button = ttk.Button(frame, text="Скачать", command=self._start_download)
         self.download_button.pack(anchor="w")
@@ -101,14 +131,14 @@ class App:
         ttk.Label(
             frame,
             text=(
-                "Платформу выбирать не нужно. Ссылка определяется автоматически: "
-                "YouTube / VK / TikTok / Instagram / X. Видео после скачивания приводится "
-                "к MP4 H.264 + AAC для Premiere, изображения сохраняются без перекодирования."
+                "Платформу выбирать не нужно. Вставь ссылку — программа сама определит "
+                "YouTube / VK / TikTok / Instagram / X. Видео при необходимости будет "
+                "подготовлено как MP4 H.264 + AAC для Premiere."
             ),
-            wraplength=840,
+            wraplength=860,
         ).pack(anchor="w", pady=(14, 10))
 
-        self.download_log = tk.Text(frame, height=18, wrap="word")
+        self.download_log = tk.Text(frame, height=16, wrap="word")
         self.download_log.pack(fill="both", expand=True)
         self.download_log.configure(state="disabled")
 
@@ -121,6 +151,8 @@ class App:
         ttk.Label(file_row, text="Аудио или видео").pack(side="left")
         ttk.Button(file_row, text="Выбрать файл", command=self._choose_media).pack(side="right")
         ttk.Entry(frame, textvariable=self.media_file).pack(fill="x", pady=(4, 14))
+
+        self._output_row(frame, self.transcript_output)
 
         controls = ttk.Frame(frame)
         controls.pack(fill="x")
@@ -145,13 +177,13 @@ class App:
         ttk.Label(
             frame,
             text=(
-                "Модель скачивается один раз. При доступной NVIDIA программа пробует GPU "
-                "и автоматически переключается на CPU при проблемах CUDA."
+                "Модель скачивается один раз. Если NVIDIA видна, но CUDA-библиотеки для Whisper "
+                "не установлены, программа сразу использует CPU вместо лишнего падения GPU-попытки."
             ),
-            wraplength=840,
+            wraplength=860,
         ).pack(anchor="w", pady=(14, 10))
 
-        self.transcribe_log = tk.Text(frame, height=18, wrap="word")
+        self.transcribe_log = tk.Text(frame, height=14, wrap="word")
         self.transcribe_log.pack(fill="both", expand=True)
         self.transcribe_log.configure(state="disabled")
 
@@ -159,8 +191,8 @@ class App:
         frame = ttk.Frame(notebook, padding=18)
         notebook.add(frame, text="YouTube субтитры")
 
-        ttk.Label(frame, text="Ссылка на YouTube").pack(anchor="w")
-        ttk.Entry(frame, textvariable=self.subtitle_url).pack(fill="x", pady=(4, 10))
+        self._url_row(frame, self.subtitle_url, "Ссылка на YouTube")
+        self._output_row(frame, self.subtitle_output)
 
         button_row = ttk.Frame(frame)
         button_row.pack(fill="x")
@@ -191,22 +223,45 @@ class App:
         ttk.Label(
             frame,
             text=(
-                "Этот режим не запускает Whisper. Он получает уже существующие дорожки YouTube, "
-                "отдельно показывает загруженные вручную и автоматические субтитры, а затем сохраняет "
-                "выбранную дорожку как SRT и обычный TXT."
+                "Этот режим не запускает Whisper: он берёт уже существующие YouTube-субтитры. "
+                "После сохранения точный путь появится в логе и программа предложит открыть папку."
             ),
-            wraplength=840,
+            wraplength=860,
         ).pack(anchor="w", pady=(14, 10))
 
-        self.subtitle_log = tk.Text(frame, height=18, wrap="word")
+        self.subtitle_log = tk.Text(frame, height=14, wrap="word")
         self.subtitle_log.pack(fill="both", expand=True)
         self.subtitle_log.configure(state="disabled")
+
+    def _paste_url(self, variable: tk.StringVar, return_break: bool = False):
+        try:
+            value = self.root.clipboard_get()
+        except tk.TclError:
+            messagebox.showerror(APP_NAME, "В буфере обмена нет текста.")
+            return "break" if return_break else None
+        url = clean_pasted_url(value)
+        if not url:
+            messagebox.showerror(APP_NAME, "В буфере обмена не найден URL.")
+            return "break" if return_break else None
+        variable.set(url)
+        return "break" if return_break else None
 
     def _on_url_changed(self, *_args) -> None:
         value = self.url.get().strip()
         self.platform.set(
             f"Определено автоматически: {detect_platform(value)}" if value else "Платформа определится автоматически"
         )
+        self._refresh_output_paths()
+
+    def _refresh_output_paths(self, *_args) -> None:
+        root = Path(self.output_root.get() or default_output_dir()).expanduser()
+        platform = detect_platform(self.url.get().strip()) if self.url.get().strip() else ""
+        if platform and platform != "Other":
+            self.download_output.set(str(root / platform_folder(platform)))
+        else:
+            self.download_output.set(str(root))
+        self.transcript_output.set(str(root / "Transcripts"))
+        self.subtitle_output.set(str(root / "YouTube_Subtitles"))
 
     def _choose_output(self) -> None:
         selected = filedialog.askdirectory(initialdir=self.output_root.get() or str(default_output_dir()))
@@ -217,6 +272,16 @@ class App:
         selected = filedialog.askopenfilename(title="Выбери аудио или видео")
         if selected:
             self.media_file.set(selected)
+
+    def _open_folder(self, path: Path) -> None:
+        try:
+            path.mkdir(parents=True, exist_ok=True)
+            if os.name == "nt":
+                os.startfile(str(path))  # type: ignore[attr-defined]
+            else:
+                messagebox.showinfo(APP_NAME, str(path))
+        except Exception as exc:
+            messagebox.showerror(APP_NAME, f"Не удалось открыть папку:\n{path}\n\n{exc}")
 
     def _set_busy(self, busy: bool) -> None:
         self.busy = busy
@@ -242,7 +307,8 @@ class App:
     def _start_download(self) -> None:
         if self.busy:
             return
-        url = self.url.get().strip()
+        url = clean_pasted_url(self.url.get())
+        self.url.set(url)
         if not url:
             messagebox.showerror(APP_NAME, "Вставь ссылку.")
             return
@@ -260,7 +326,7 @@ class App:
                 progress=lambda p: self._post("progress", p),
                 log=lambda s: self._post("download_log", s),
             )
-            self._post("done", ("Скачивание завершено", outputs))
+            self._post("done", ("Скачивание завершено", outputs, "download_log"))
         except Exception as exc:
             self._post("error", f"{exc}\n\n{traceback.format_exc()}")
 
@@ -271,7 +337,7 @@ class App:
         if not media.is_file():
             messagebox.showerror(APP_NAME, "Выбери существующий аудио- или видеофайл.")
             return
-        out = Path(self.output_root.get()).expanduser() / "Transcripts"
+        out = Path(self.transcript_output.get()).expanduser()
         profile_name = self.model_profile.get()
         language_name = self.language.get()
         with_timestamps = self.timestamps.get()
@@ -305,14 +371,15 @@ class App:
                 progress=lambda p: self._post("progress", p),
                 log=lambda s: self._post("transcribe_log", s),
             )
-            self._post("done", ("Транскрибация завершена", outputs))
+            self._post("done", ("Транскрибация завершена", outputs, "transcribe_log"))
         except Exception as exc:
             self._post("error", f"{exc}\n\n{traceback.format_exc()}")
 
     def _start_subtitle_analysis(self) -> None:
         if self.busy:
             return
-        url = self.subtitle_url.get().strip()
+        url = clean_pasted_url(self.subtitle_url.get())
+        self.subtitle_url.set(url)
         if not url:
             messagebox.showerror(APP_NAME, "Вставь ссылку на YouTube.")
             return
@@ -346,8 +413,8 @@ class App:
         if track is None:
             messagebox.showerror(APP_NAME, "Выбери дорожку субтитров.")
             return
-        url = self.subtitle_url.get().strip()
-        out = Path(self.output_root.get()).expanduser() / "YouTube_Subtitles"
+        url = clean_pasted_url(self.subtitle_url.get())
+        out = Path(self.subtitle_output.get()).expanduser()
         title_hint = self.subtitle_info.title
         self._set_busy(True)
         self.status.set("Скачиваю выбранные субтитры…")
@@ -368,7 +435,7 @@ class App:
                 progress=lambda p: self._post("progress", p),
                 log=lambda s: self._post("subtitle_log", s),
             )
-            self._post("done", ("YouTube-субтитры сохранены", outputs))
+            self._post("done", ("YouTube-субтитры сохранены", outputs, "subtitle_log"))
         except Exception as exc:
             self._post("error", f"{exc}\n\n{traceback.format_exc()}")
 
@@ -377,6 +444,13 @@ class App:
         widget.insert("end", text + "\n")
         widget.see("end")
         widget.configure(state="disabled")
+
+    def _log_widget(self, channel: str) -> tk.Text:
+        return {
+            "download_log": self.download_log,
+            "transcribe_log": self.transcribe_log,
+            "subtitle_log": self.subtitle_log,
+        }[channel]
 
     def _poll_events(self) -> None:
         try:
@@ -404,12 +478,23 @@ class App:
                     self.status.set(f"{info.title} · дорожек: {len(labels)}")
                     self._set_busy(False)
                 elif kind == "done":
-                    title, outputs = payload  # type: ignore[misc]
+                    title, outputs, channel = payload  # type: ignore[misc]
+                    outputs = [Path(p) for p in outputs]
                     self.progress.set(100)
                     self.status.set(str(title))
                     self._set_busy(False)
+                    widget = self._log_widget(str(channel))
+                    self._append_log(widget, "")
+                    self._append_log(widget, "СОХРАНЕНО:")
+                    for path in outputs:
+                        self._append_log(widget, str(path))
                     paths = "\n".join(str(p) for p in outputs)
-                    messagebox.showinfo(APP_NAME, f"{title}\n\n{paths}")
+                    open_now = messagebox.askyesno(
+                        APP_NAME,
+                        f"{title}\n\n{paths}\n\nОткрыть папку с результатом?",
+                    )
+                    if open_now and outputs:
+                        self._open_folder(outputs[0].parent)
                 elif kind == "error":
                     self._set_busy(False)
                     self.status.set("Ошибка")
