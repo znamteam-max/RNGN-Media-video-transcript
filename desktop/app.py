@@ -4,6 +4,7 @@ import os
 import queue
 import re
 import threading
+import time
 import traceback
 from pathlib import Path
 import tkinter as tk
@@ -20,7 +21,7 @@ from youtube_subtitles import (
 )
 
 APP_NAME = "RNGN Media"
-APP_VERSION = "0.3.0"
+APP_VERSION = "0.3.1"
 
 BG = "#F3F5F8"
 CARD = "#FFFFFF"
@@ -80,7 +81,7 @@ class App:
         self.quality_values: list[str] = []
 
         self.media_file = tk.StringVar()
-        self.model_profile = tk.StringVar(value="Точная — large-v3")
+        self.model_profile = tk.StringVar(value="Быстрая — large-v3-turbo (рекомендуется)")
         self.language = tk.StringVar(value="Авто")
         self.timestamps = tk.BooleanVar(value=False)
         self.make_srt = tk.BooleanVar(value=True)
@@ -581,6 +582,17 @@ class App:
         with_timestamps: bool,
         make_srt: bool,
     ) -> None:
+        stop_heartbeat = threading.Event()
+        started = time.monotonic()
+
+        def heartbeat() -> None:
+            while not stop_heartbeat.wait(8):
+                elapsed = int(time.monotonic() - started)
+                minutes, seconds = divmod(elapsed, 60)
+                self._post("transcribe_heartbeat", f"Обработка идёт · {minutes:02d}:{seconds:02d}")
+
+        threading.Thread(target=heartbeat, daemon=True).start()
+
         try:
             outputs = transcribe_media(
                 media,
@@ -596,6 +608,8 @@ class App:
             self._post("done", ("Транскрибация завершена", outputs, "transcribe_log"))
         except Exception as exc:
             self._post("error", f"{exc}\n\n{traceback.format_exc()}")
+        finally:
+            stop_heartbeat.set()
 
     def _start_subtitle_analysis(self, url: str | None = None) -> None:
         if self.subtitle_analyzing:
@@ -686,6 +700,8 @@ class App:
                     self.quality_status.set(str(payload))
                 elif kind == "subtitle_status":
                     self.subtitle_status.set(str(payload))
+                elif kind == "transcribe_heartbeat":
+                    self.status.set(str(payload))
                 elif kind == "download_log":
                     self._append_log(self.download_log, str(payload))
                 elif kind == "transcribe_log":
