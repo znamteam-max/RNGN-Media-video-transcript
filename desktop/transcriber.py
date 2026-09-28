@@ -18,8 +18,8 @@ SUPPORTED_EXTENSIONS = {
 }
 
 MODEL_PROFILES = {
-    "Точная — large-v3": {"model": "large-v3", "beam_size": 5},
-    "Быстрая — large-v3-turbo": {"model": "large-v3-turbo", "beam_size": 3},
+    "Быстрая — large-v3-turbo (рекомендуется)": {"model": "large-v3-turbo", "beam_size": 3},
+    "Точная — large-v3 (медленнее на CPU)": {"model": "large-v3", "beam_size": 5},
 }
 
 LANGUAGES = {
@@ -146,7 +146,7 @@ def transcribe_media(
     media_path: Path,
     output_dir: Path,
     *,
-    profile_name: str = "Точная — large-v3",
+    profile_name: str = "Быстрая — large-v3-turbo (рекомендуется)",
     language_name: str = "Авто",
     with_timestamps: bool = False,
     make_srt: bool = True,
@@ -160,7 +160,7 @@ def transcribe_media(
     if media_path.suffix.lower() not in SUPPORTED_EXTENSIONS:
         raise ValueError(f"Неподдерживаемый формат: {media_path.suffix}")
 
-    profile = MODEL_PROFILES.get(profile_name, MODEL_PROFILES["Точная — large-v3"])
+    profile = MODEL_PROFILES.get(profile_name, MODEL_PROFILES["Быстрая — large-v3-turbo (рекомендуется)"])
     language = LANGUAGES.get(language_name, None)
     output_dir.mkdir(parents=True, exist_ok=True)
     model_dir = _app_data_dir() / "models"
@@ -179,14 +179,23 @@ def transcribe_media(
         model = None
         try:
             progress(3)
-            status(f"Загрузка {profile['model']} · {device.upper()}…")
+            if device == "cpu":
+                status(
+                    f"Подготавливаю {profile['model']} на CPU… "
+                    "Первый запуск может занять несколько минут из-за загрузки модели."
+                )
+            else:
+                status(f"Подготавливаю {profile['model']} · NVIDIA GPU…")
             log(f"model={profile['model']} device={device} compute_type={compute_type}")
             model = WhisperModel(
                 str(profile["model"]),
                 device=device,
                 compute_type=compute_type,
                 download_root=str(model_dir),
+                cpu_threads=max(1, min(8, os.cpu_count() or 4)),
+                num_workers=1,
             )
+            log("Модель загружена. Начинаю распознавание.")
             status(f"Распознавание · {'NVIDIA GPU' if device == 'cuda' else 'CPU'}…")
             segments_iter, info = model.transcribe(
                 str(media_path),
