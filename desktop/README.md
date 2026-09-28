@@ -1,26 +1,81 @@
 # RNGN Media Desktop
 
-Первая объединённая desktop-версия двух рабочих инструментов:
+Единая Windows-программа для трёх задач, которые раньше жили отдельно.
 
-1. **Media Downloader** — одна ссылка, автоматическое определение YouTube / VK / TikTok / Instagram / X; видео приводится к MP4 H.264 + AAC для Premiere, фото сохраняются как есть.
-2. **Transcriber** — локальный аудио- или видеофайл → TXT и SRT через `faster-whisper`; `large-v3` или `large-v3-turbo`, GPU при доступности с fallback на CPU.
+## Что уже объединено
 
-Существующий YouTube subtitle bot в корне репозитория не удалён и не переписан. Следующий этап — перенести его функцию «вставил YouTube URL → получил уже существующие manual/auto subtitles» в третий tab desktop-программы.
+1. **Скачать медиа**
+   - вставляешь одну ссылку;
+   - платформа определяется автоматически: YouTube / VK / TikTok / Instagram / X;
+   - основной downloader — `yt-dlp`;
+   - для постов, каруселей и fallback-сценариев используется `gallery-dl`;
+   - видео при необходимости приводится FFmpeg к MP4 H.264 + AAC для Premiere;
+   - изображения сохраняются без перекодирования.
 
-## Windows
+2. **Транскрибировать**
+   - локальный аудио- или видеофайл → TXT и SRT;
+   - `faster-whisper`;
+   - профили `large-v3` и `large-v3-turbo`;
+   - NVIDIA GPU при доступности;
+   - автоматический fallback на CPU при CUDA-проблемах;
+   - модели хранятся вне Git и скачиваются один раз.
 
-```text
+3. **YouTube субтитры**
+   - вставляешь YouTube URL;
+   - программа находит уже существующие manual/auto caption tracks;
+   - показывает язык и источник дорожки;
+   - сохраняет выбранную дорожку как SRT + обычный TXT;
+   - Whisper в этом режиме не запускается.
+
+## Готовый Windows installer
+
+GitHub Actions собирает программу через PyInstaller и упаковывает её через Inno Setup.
+
+Installer включает:
+- Python runtime приложения;
+- `yt-dlp`;
+- `gallery-dl`;
+- Deno;
+- FFmpeg + ffprobe;
+- зависимости transcriber.
+
+То есть для установки готовой сборки отдельно ставить Python и media-tools не нужно.
+
+Workflow: `.github/workflows/desktop-build.yml`.
+
+Release: `desktop-v0.2.0`.
+
+## Запуск из исходников
+
+Из папки `desktop`:
+
+```bat
 SETUP_WINDOWS.bat
 RUN.bat
 ```
 
-`SETUP_WINDOWS.bat` создаёт `.venv`, устанавливает Python-зависимости и скачивает `yt-dlp`, `gallery-dl`, `FFmpeg/ffprobe` и `Deno` в `desktop/tools/bin`.
+`SETUP_WINDOWS.bat` создаёт `.venv`, ставит Python-зависимости и скачивает media-tools в `desktop/tools/bin`.
 
 По умолчанию результаты сохраняются в `Videos/RNGN Media`:
 
 - `YouTube/`, `VK/`, `TikTok/`, `Instagram/`, `X_Twitter/` — скачанные медиа;
-- `Transcripts/` — `.transcript.txt` и `.subtitles.srt`.
+- `Transcripts/` — результаты локальной транскрибации;
+- `YouTube_Subtitles/` — готовые YouTube TXT/SRT.
 
-## Почему downloader не переписан вслепую
+## Проверки
 
-Контрольные SHA-256 рабочей v5.16/v5.16.1 сохранены в `../artifacts/downloader/README.md`. Новый Python frontend использует те же базовые инструменты (`yt-dlp`, `gallery-dl`, FFmpeg) и автоматическую платформенную маршрутизацию. Оригинальные ZIP/legacy snapshot остаются сохранены вне обычного Git history до отдельного archival шага; их используем как regression reference для сложных fallback-случаев (Instagram cookies, X video+audio, TikTok CDN, YouTube clients).
+Без скачивания Whisper-моделей:
+
+```bat
+python test_core.py
+```
+
+GitHub Actions дополнительно проверяет синтаксис, core unit tests, PyInstaller build, наличие всех runtime tools и сборку Windows installer.
+
+## Legacy / regression reference
+
+Рабочая ветка Media Downloader v5.16/5.16.1 не используется как новая GUI-архитектура, но её поведение остаётся regression reference. Контрольные данные сохранены в `../artifacts/downloader/`.
+
+Переданный ZNAMBO Transcriber v1.7.0 был Windows installer без оригинальных Python-исходников. `transcriber.py` — восстановленный clean-room core на подтверждённом стеке `faster-whisper`, а не заявление, что это исходный source v1.7.0.
+
+Подробности: `../docs/TRANSCRIBER_RECOVERY.md`.
