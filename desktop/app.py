@@ -146,7 +146,7 @@ class App:
             foreground=TEXT,
             font=("Segoe UI", 11, "bold"),
         )
-        style.configure("Card.TLabel", background=CARD, foreground=TEXT)
+        style.configure("Card.TFrame", background=CARD)\n        style.configure("Card.TLabel", background=CARD, foreground=TEXT)
         style.configure("Muted.Card.TLabel", background=CARD, foreground=MUTED)
         style.configure("Success.Card.TLabel", background=CARD, foreground=SUCCESS, font=("Segoe UI", 10, "bold"))
 
@@ -207,7 +207,7 @@ class App:
         return card
 
     def _url_entry(self, parent: ttk.Frame, variable: tk.StringVar) -> ttk.Entry:
-        row = ttk.Frame(parent, style="App.TFrame")
+        row = ttk.Frame(parent, style="Card.TFrame")
         row.pack(fill="x")
         entry = ttk.Entry(row, textvariable=variable)
         entry.pack(side="left", fill="x", expand=True)
@@ -246,7 +246,7 @@ class App:
         return entry
 
     def _output_controls(self, parent: ttk.Frame, variable: tk.StringVar) -> None:
-        row = ttk.Frame(parent, style="App.TFrame")
+        row = ttk.Frame(parent, style="Card.TFrame")
         row.pack(fill="x")
         ttk.Entry(row, textvariable=variable, state="readonly").pack(side="left", fill="x", expand=True)
         ttk.Button(
@@ -287,7 +287,7 @@ class App:
         quality = self._card(frame, "2. Качество")
         self.quality_combo = ttk.Combobox(quality, textvariable=self.quality, values=[], state="disabled")
         self.quality_combo.pack(fill="x")
-        quality_row = ttk.Frame(quality, style="App.TFrame")
+        quality_row = ttk.Frame(quality, style="Card.TFrame")
         quality_row.pack(fill="x", pady=(8, 0))
         ttk.Label(quality_row, textvariable=self.quality_status, style="Muted.Card.TLabel").pack(side="left")
         self.quality_refresh_button = ttk.Button(
@@ -319,7 +319,7 @@ class App:
         frame = self._tab_frame(notebook, "Транскрибировать")
 
         source = self._card(frame, "1. Исходный файл")
-        row = ttk.Frame(source, style="App.TFrame")
+        row = ttk.Frame(source, style="Card.TFrame")
         row.pack(fill="x")
         ttk.Entry(row, textvariable=self.media_file).pack(side="left", fill="x", expand=True)
         ttk.Button(row, text="Выбрать файл", style="Secondary.TButton", command=self._choose_media).pack(
@@ -332,18 +332,18 @@ class App:
         ).pack(anchor="w", pady=(8, 0))
 
         settings = self._card(frame, "2. Настройки")
-        grid = ttk.Frame(settings, style="App.TFrame")
+        grid = ttk.Frame(settings, style="Card.TFrame")
         grid.pack(fill="x")
-        left = ttk.Frame(grid, style="App.TFrame")
+        left = ttk.Frame(grid, style="Card.TFrame")
         left.pack(side="left", fill="x", expand=True, padx=(0, 7))
-        right = ttk.Frame(grid, style="App.TFrame")
+        right = ttk.Frame(grid, style="Card.TFrame")
         right.pack(side="left", fill="x", expand=True, padx=(7, 0))
         ttk.Label(left, text="Модель", style="Card.TLabel").pack(anchor="w")
         ttk.Combobox(left, textvariable=self.model_profile, values=list(MODEL_PROFILES), state="readonly").pack(fill="x", pady=(4, 0))
         ttk.Label(right, text="Язык", style="Card.TLabel").pack(anchor="w")
         ttk.Combobox(right, textvariable=self.language, values=list(LANGUAGES), state="readonly").pack(fill="x", pady=(4, 0))
 
-        checks = ttk.Frame(settings, style="App.TFrame")
+        checks = ttk.Frame(settings, style="Card.TFrame")
         checks.pack(fill="x", pady=(12, 0))
         ttk.Checkbutton(checks, text="Сделать SRT", variable=self.make_srt).pack(side="left")
         ttk.Checkbutton(checks, text="Таймкоды в TXT", variable=self.timestamps).pack(side="left", padx=(18, 0))
@@ -369,7 +369,7 @@ class App:
 
         source = self._card(frame, "1. YouTube-ссылка")
         self.subtitle_url_entry = self._url_entry(source, self.subtitle_url)
-        subtitle_row = ttk.Frame(source, style="App.TFrame")
+        subtitle_row = ttk.Frame(source, style="Card.TFrame")
         subtitle_row.pack(fill="x", pady=(8, 0))
         ttk.Label(subtitle_row, textvariable=self.subtitle_status, style="Muted.Card.TLabel").pack(side="left")
         self.subtitle_analyze_button = ttk.Button(
