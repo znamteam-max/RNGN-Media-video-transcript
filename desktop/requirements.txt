@@ -1,0 +1,5 @@
+faster-whisper>=1.1,<2
+ctranslate2>=4.4,<5
+av>=13,<15
+requests>=2.32,<3
+py7zr>=0.22,<1

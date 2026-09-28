@@ -1,3 +1,54 @@
+# RNGN Media
+
+Единый проект для работы с медиа: скачивание видео/фото с соцсетей, локальная транскрибация аудио/видео и получение существующих YouTube-субтитров.
+
+Сейчас в репозитории два runtime, которые постепенно сводятся в одну desktop-программу:
+
+- **`desktop/` — RNGN Media Desktop**: единое Windows GUI для скачивания медиа и транскрибации;
+- **`src/` — YouTube Transcript Telegram Bot**: существующий сервис, который достаёт manual/auto subtitles с YouTube без повторного распознавания речи.
+
+## Desktop: первый объединённый этап
+
+Уже объединены две функции:
+
+1. **Media Downloader** — вставляешь одну ссылку, платформа определяется автоматически: YouTube / VK / TikTok / Instagram / X. Для обычных видео используется `yt-dlp`, для постов/каруселей доступен `gallery-dl`, видео после загрузки при необходимости приводится FFmpeg к MP4 H.264 + AAC для Premiere.
+2. **Transcriber** — выбираешь локальный аудио- или видеофайл и получаешь TXT + SRT через `faster-whisper`. Поддержаны `large-v3` и `large-v3-turbo`, NVIDIA GPU при доступности и CPU fallback.
+
+Рабочая база downloader зафиксирована как regression reference: manifest и контрольные SHA-256 лежат в `artifacts/downloader/`, а новый desktop-core повторяет её базовую маршрутизацию через `yt-dlp` / `gallery-dl` / FFmpeg. Оригинальные ZIP v5.16 и v5.16.1 остаются сохранены у владельца проекта и в рабочем архиве миграции; бинарные ZIP не добавлены в обычный Git history на первом этапе. Сложные platform-specific fallback'и переносим в общий код постепенно.
+
+Подробности: [`desktop/README.md`](desktop/README.md) и [`desktop/ARCHITECTURE.md`](desktop/ARCHITECTURE.md).
+
+### Запуск на Windows из исходников
+
+Из папки `desktop`:
+
+```bat
+SETUP_WINDOWS.bat
+RUN.bat
+```
+
+Первый скрипт создаёт `.venv`, ставит Python-зависимости и скачивает `yt-dlp`, `gallery-dl`, Deno и FFmpeg/ffprobe. Runtime binaries, cookies, модели Whisper и пользовательские медиа в Git не коммитятся.
+
+Проверка core без скачивания моделей:
+
+```bat
+python test_core.py
+```
+
+## Следующий этап объединения
+
+Текущий YouTube subtitle extractor остаётся рабочим. Следующий migration step — вынести его логику в переиспользуемый модуль и добавить в Desktop третий раздел:
+
+**YouTube URL → найти существующие manual/auto subtitles → выбрать язык → сохранить TXT/SRT**, без Whisper, если субтитры у ролика уже есть.
+
+## ZNAMBO Transcriber v1.7.0
+
+Переданный архив v1.7.0 содержал Windows installer, а не оригинальные `.py`-исходники. Установщик был разобран для восстановления подтверждённого поведения приложения. `desktop/transcriber.py` — clean-room reimplementation этого core, а не заявление, что это оригинальный исходник.
+
+Зафиксированная информация о восстановлении: [`docs/TRANSCRIBER_RECOVERY.md`](docs/TRANSCRIBER_RECOVERY.md).
+
+---
+
 # YouTube Video Transcript Telegram Bot
 
 Telegram bot that accepts a YouTube link and returns a full transcript from the video's available subtitles.
@@ -7,7 +58,7 @@ If a video has several subtitle tracks, the bot asks which language to use and m
 - `manual` / uploaded subtitles;
 - `auto` / YouTube auto-generated subtitles.
 
-The project has two runtimes:
+The project has two bot runtimes:
 
 - local long polling: `src/index.js`;
 - Cloudflare Workers webhook: `src/worker.js`.
@@ -59,7 +110,7 @@ https://YOUR_WORKER.YOUR_SUBDOMAIN.workers.dev/telegram/webhook
 
 After that, send `/start` to the bot in Telegram and then send a YouTube link.
 
-## Local Run
+## Bot Local Run
 
 Create `.env` from `.env.example`:
 
@@ -87,17 +138,7 @@ For direct Wrangler deploy:
 npm run cf:deploy
 ```
 
-## How It Works
-
-1. Extracts the YouTube `videoId` from the message.
-2. Reads the video's `captionTracks`.
-3. Sends a language/source selector if several tracks exist.
-4. Downloads the selected transcript.
-5. Sends short transcripts as text and long transcripts as `.txt` files.
-
-Important: YouTube does not provide a stable public transcript API for arbitrary videos. Some `timedtext` requests now return an empty response without a Proof-of-Origin token, so the bot supports optional `YOUTUBE_PO_TOKEN` and `YOUTUBE_TRANSCRIPT_DEV_API_KEY`.
-
-## Checks
+## Bot checks
 
 ```bash
 npm run check

@@ -10,3 +10,17 @@ yarn-error.log*
 pnpm-debug.log*
 .DS_Store
 coverage/
+
+# RNGN Media Desktop runtime
+.venv/
+__pycache__/
+*.py[cod]
+desktop/tools/bin/*
+!desktop/tools/bin/.gitkeep
+desktop/cookies.txt
+cookies.txt
+*.part
+*.partial.*
+logs/
+downloads/
+models/
