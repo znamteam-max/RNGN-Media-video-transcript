@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 
 from app import clean_pasted_url
+from downloader import _format_selector
 
 from platforms import detect_platform, platform_folder
 from transcriber import Word, _build_cues, _format_txt, _timestamp
@@ -71,6 +72,19 @@ class YoutubeSubtitleTests(unittest.TestCase):
         self.assertIn("English (en) — авто", labels)
         self.assertFalse(any("live_chat" in label for label in labels))
 
+    def test_original_track_is_first(self) -> None:
+        info = {
+            "automatic_captions": {
+                "ru": [{"ext": "vtt", "name": "Russian"}],
+                "ru-orig": [{"ext": "vtt", "name": "Russian"}],
+                "en": [{"ext": "vtt", "name": "English"}],
+            }
+        }
+        tracks = tracks_from_info(info)
+        self.assertEqual(tracks[0].language_code, "ru-orig")
+        self.assertTrue(tracks[0].is_original)
+        self.assertIn("оригинал", tracks[0].label)
+
     def test_srt_to_text_dedupes_rolling_captions(self) -> None:
         srt = """1
 00:00:00,000 --> 00:00:01,000
@@ -92,6 +106,16 @@ class YoutubeSubtitleTests(unittest.TestCase):
         self.assertEqual(text.count("Привет мир"), 1)
         self.assertNotIn("Привет Привет", text)
         self.assertIn("Новая фраза.", text)
+
+
+class DownloaderQualityTests(unittest.TestCase):
+    def test_quality_limit_is_applied(self) -> None:
+        selector = _format_selector("1080p")
+        self.assertIn("height<=1080", selector)
+
+    def test_best_quality_has_no_height_cap(self) -> None:
+        selector = _format_selector("Лучшее доступное")
+        self.assertNotIn("height<=", selector)
 
 
 class UiHelpersTests(unittest.TestCase):
