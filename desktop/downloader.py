@@ -50,10 +50,25 @@ class MediaAnalysis:
 
 def _candidate_roots(app_root: Path) -> Iterable[Path]:
     yield app_root / "tools" / "bin"
+
+    # PyInstaller .app on macOS: Contents/MacOS/RNGN Media
+    if sys.platform == "darwin" and app_root.name == "MacOS":
+        yield app_root.parent / "Resources" / "tools" / "bin"
+
     yield app_root / "legacy" / "downloader-v5.16.1" / "bin"
+
     local = os.environ.get("LOCALAPPDATA")
     if local:
         yield Path(local) / "MediaDownloaderPremiere" / "bin"
+
+    if sys.platform == "darwin":
+        yield Path.home() / "Library" / "Application Support" / "RNGN Media" / "tools" / "bin"
+
+
+def _tool_names() -> tuple[str, str, str, str, str]:
+    if os.name == "nt":
+        return "yt-dlp.exe", "gallery-dl.exe", "ffmpeg.exe", "ffprobe.exe", "deno.exe"
+    return "yt-dlp", "gallery-dl", "ffmpeg", "ffprobe", "deno"
 
 
 def resolve_tools(app_root: Path | None = None) -> Toolset:
@@ -61,17 +76,24 @@ def resolve_tools(app_root: Path | None = None) -> Toolset:
         root = Path(sys.executable).resolve().parent
     else:
         root = app_root or Path(__file__).resolve().parent
+
+    yt_name, gal_name, ffmpeg_name, ffprobe_name, deno_name = _tool_names()
+    checked: list[str] = []
+
     for candidate in _candidate_roots(root):
-        yt = candidate / "yt-dlp.exe"
-        gal = candidate / "gallery-dl.exe"
-        ffmpeg = candidate / "ffmpeg.exe"
-        ffprobe = candidate / "ffprobe.exe"
-        if all(p.is_file() for p in (yt, gal, ffmpeg, ffprobe)):
-            deno = candidate / "deno.exe"
+        checked.append(str(candidate))
+        yt = candidate / yt_name
+        gal = candidate / gal_name
+        ffmpeg = candidate / ffmpeg_name
+        ffprobe = candidate / ffprobe_name
+        if all(path.is_file() for path in (yt, gal, ffmpeg, ffprobe)):
+            deno = candidate / deno_name
             return Toolset(yt, gal, ffmpeg, ffprobe, deno if deno.is_file() else None)
+
+    where = "\n".join(f"• {path}" for path in checked)
     raise RuntimeError(
-        "Не найдены yt-dlp / gallery-dl / FFmpeg. Запусти desktop\\SETUP_WINDOWS.bat "
-        "или desktop\\bootstrap_tools.ps1."
+        "Не найдены встроенные yt-dlp / gallery-dl / FFmpeg. "
+        "Переустанови RNGN Media. Проверенные папки:\n" + where
     )
 
 
