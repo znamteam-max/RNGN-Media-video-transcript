@@ -21,7 +21,7 @@ from youtube_subtitles import (
 )
 
 APP_NAME = "RNGN Media"
-APP_VERSION = "0.3.1"
+APP_VERSION = "0.3.2"
 
 BG = "#F3F5F8"
 CARD = "#FFFFFF"
@@ -65,6 +65,7 @@ class App:
         self.events: queue.Queue[tuple[str, object]] = queue.Queue()
         self.busy = False
         self.quality_analyzing = False
+        self.quality_started_at = 0.0
         self.subtitle_analyzing = False
         self.quality_after_id: str | None = None
         self.subtitle_after_id: str | None = None
@@ -500,23 +501,39 @@ class App:
         target = clean_pasted_url(url or self.url.get())
         if not target or detect_platform(target) == "Other":
             return
+
         self.quality_analyzing = True
+        self.quality_started_at = time.monotonic()
         self.quality_combo.configure(state="disabled")
         self.download_button.configure(state="disabled")
-        self.quality_status.set("Проверяю реальные варианты качества…")
+        self.quality_refresh_button.configure(state="disabled", text="Проверяю…")
+        self.quality_status.set("Подключаюсь к источнику и читаю реальные форматы…")
+        self.progress.set(6)
         threading.Thread(target=self._quality_worker, args=(target,), daemon=True).start()
 
     def _quality_worker(self, url: str) -> None:
+        stop_heartbeat = threading.Event()
+        started = time.monotonic()
+
+        def heartbeat() -> None:
+            while not stop_heartbeat.wait(2):
+                elapsed = int(time.monotonic() - started)
+                self._post("quality_heartbeat", (url, elapsed))
+
+        threading.Thread(target=heartbeat, daemon=True).start()
+
         try:
             analysis = analyze_media(
                 url,
                 status=lambda s: self._post("quality_status", s),
-                progress=lambda _p: None,
+                progress=lambda p: self._post("quality_progress", p),
                 log=lambda s: self._post("download_log", s),
             )
             self._post("media_analysis", (url, analysis))
         except Exception as exc:
             self._post("quality_error", (url, str(exc)))
+        finally:
+            stop_heartbeat.set()
 
     def _start_download(self) -> None:
         if self.busy:
@@ -698,6 +715,16 @@ class App:
                     self.progress.set(int(payload))
                 elif kind == "quality_status":
                     self.quality_status.set(str(payload))
+                elif kind == "quality_progress":
+                    self.progress.set(int(payload))
+                elif kind == "quality_heartbeat":
+                    url, elapsed = payload  # type: ignore[misc]
+                    if self.quality_analyzing and clean_pasted_url(self.url.get()) == url:
+                        self.quality_status.set(
+                            f"Анализ ещё идёт · {elapsed} с. "
+                            "Если YouTube тормозит, максимум примерно 20 с, затем включится резервный режим."
+                        )
+                        self.progress.set(min(80, 8 + int(elapsed) * 3))
                 elif kind == "subtitle_status":
                     self.subtitle_status.set(str(payload))
                 elif kind == "transcribe_heartbeat":
@@ -712,6 +739,7 @@ class App:
                 elif kind == "media_analysis":
                     url, analysis = payload  # type: ignore[misc]
                     self.quality_analyzing = False
+                    self.quality_refresh_button.configure(state="normal", text="Проверить ещё раз")
                     if clean_pasted_url(self.url.get()) != url:
                         continue
                     assert isinstance(analysis, MediaAnalysis)
@@ -727,13 +755,22 @@ class App:
                 elif kind == "quality_error":
                     url, error = payload  # type: ignore[misc]
                     self.quality_analyzing = False
+                    self.quality_refresh_button.configure(state="normal", text="Проверить ещё раз")
                     if clean_pasted_url(self.url.get()) != url:
                         continue
-                    fallback = "Лучшее доступное — без предварительного анализа → MP4 H.264 + AAC"
-                    self.quality_values = [fallback]
+
+                    self._append_log(self.download_log, f"[analysis] {error}")
+                    self.quality_values = [
+                        "1080p — без анализа → MP4 H.264 + AAC",
+                        "720p — без анализа → MP4 H.264 + AAC",
+                        "Лучшее доступное — без анализа → MP4 H.264 + AAC",
+                    ]
                     self.quality_combo.configure(values=self.quality_values, state="readonly")
-                    self.quality.set(fallback)
-                    self.quality_status.set(f"Не удалось получить список форматов: {error}")
+                    self.quality.set(self.quality_values[0])
+                    self.quality_status.set(
+                        f"{error}  Можно скачать сейчас в резервном режиме или нажать «Проверить ещё раз»."
+                    )
+                    self.progress.set(0)
                     if not self.busy:
                         self.download_button.configure(state="normal")
 
