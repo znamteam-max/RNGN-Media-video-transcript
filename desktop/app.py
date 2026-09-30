@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import subprocess
+import sys
 import queue
 import re
 import threading
@@ -21,7 +23,7 @@ from youtube_subtitles import (
 )
 
 APP_NAME = "RNGN Media"
-APP_VERSION = "0.3.2"
+APP_VERSION = "0.3.3"
 
 BG = "#F3F5F8"
 CARD = "#FFFFFF"
@@ -33,6 +35,8 @@ ACCENT_DARK = "#E5571C"
 DARK = "#111827"
 LOG_FG = "#D7DEE8"
 SUCCESS = "#17834A"
+UI_FONT = "Helvetica Neue" if sys.platform == "darwin" else "Segoe UI"
+MONO_FONT = "Menlo" if sys.platform == "darwin" else "Consolas"
 
 
 def default_output_dir() -> Path:
@@ -112,12 +116,12 @@ class App:
         except tk.TclError:
             pass
 
-        style.configure(".", font=("Segoe UI", 10))
+        style.configure(".", font=(UI_FONT, 10))
         style.configure("App.TFrame", background=BG)
         style.configure("Header.TFrame", background=DARK)
-        style.configure("HeaderTitle.TLabel", background=DARK, foreground="white", font=("Segoe UI", 24, "bold"))
-        style.configure("HeaderSub.TLabel", background=DARK, foreground="#C7D0DC", font=("Segoe UI", 10))
-        style.configure("Version.TLabel", background="#263244", foreground="#F8FAFC", padding=(8, 4), font=("Segoe UI", 9, "bold"))
+        style.configure("HeaderTitle.TLabel", background=DARK, foreground="white", font=(UI_FONT, 24, "bold"))
+        style.configure("HeaderSub.TLabel", background=DARK, foreground="#C7D0DC", font=(UI_FONT, 10))
+        style.configure("Version.TLabel", background="#263244", foreground="#F8FAFC", padding=(8, 4), font=(UI_FONT, 9, "bold"))
 
         style.configure("TNotebook", background=BG, borderwidth=0)
         style.configure(
@@ -125,7 +129,7 @@ class App:
             background="#E7EBF0",
             foreground="#556274",
             padding=(18, 10),
-            font=("Segoe UI", 10, "bold"),
+            font=(UI_FONT, 10, "bold"),
             borderwidth=0,
         )
         style.map(
@@ -146,12 +150,12 @@ class App:
             "Card.TLabelframe.Label",
             background=CARD,
             foreground=TEXT,
-            font=("Segoe UI", 11, "bold"),
+            font=(UI_FONT, 11, "bold"),
         )
         style.configure("Card.TFrame", background=CARD)
         style.configure("Card.TLabel", background=CARD, foreground=TEXT)
         style.configure("Muted.Card.TLabel", background=CARD, foreground=MUTED)
-        style.configure("Success.Card.TLabel", background=CARD, foreground=SUCCESS, font=("Segoe UI", 10, "bold"))
+        style.configure("Success.Card.TLabel", background=CARD, foreground=SUCCESS, font=(UI_FONT, 10, "bold"))
 
         style.configure(
             "Accent.TButton",
@@ -159,7 +163,7 @@ class App:
             foreground="white",
             bordercolor=ACCENT,
             padding=(16, 9),
-            font=("Segoe UI", 10, "bold"),
+            font=(UI_FONT, 10, "bold"),
         )
         style.map(
             "Accent.TButton",
@@ -274,7 +278,7 @@ class App:
             relief="flat",
             padx=10,
             pady=10,
-            font=("Consolas", 9),
+            font=(MONO_FONT, 9),
         )
         log.pack(fill="both", expand=True)
         log.configure(state="disabled")
@@ -473,8 +477,10 @@ class App:
             path.mkdir(parents=True, exist_ok=True)
             if os.name == "nt":
                 os.startfile(str(path))  # type: ignore[attr-defined]
+            elif sys.platform == "darwin":
+                subprocess.run(["open", str(path)], check=False)
             else:
-                messagebox.showinfo(APP_NAME, str(path))
+                subprocess.run(["xdg-open", str(path)], check=False)
         except Exception as exc:
             messagebox.showerror(APP_NAME, f"Не удалось открыть папку:\n{path}\n\n{exc}")
 
