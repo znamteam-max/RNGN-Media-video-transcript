@@ -289,6 +289,82 @@ def _default_quality_label(choices: tuple[QualityChoice, ...]) -> str:
     return choices[0].label
 
 
+def _terminate_process_tree(process: subprocess.Popen[str]) -> None:
+    if process.poll() is not None:
+        return
+    try:
+        if os.name == "nt":
+            subprocess.run(
+                ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                creationflags=_creation_flags(),
+                timeout=5,
+            )
+        else:
+            process.kill()
+    except Exception:
+        try:
+            process.kill()
+        except Exception:
+            pass
+
+
+def _run_analysis_capture(
+    command: list[str],
+    *,
+    timeout_seconds: int,
+    log: LogCallback,
+) -> tuple[int, str, str, bool]:
+    log("$ " + subprocess.list2cmdline(command))
+    process = subprocess.Popen(
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        creationflags=_creation_flags(),
+    )
+    try:
+        stdout, stderr = process.communicate(timeout=timeout_seconds)
+        return process.returncode or 0, stdout, stderr, False
+    except subprocess.TimeoutExpired:
+        _terminate_process_tree(process)
+        try:
+            stdout, stderr = process.communicate(timeout=3)
+        except Exception:
+            stdout, stderr = "", ""
+        return -9, stdout, stderr, True
+
+
+def _friendly_analysis_error(messages: list[str], timed_out: bool) -> str:
+    text = "\n".join(messages).lower()
+    if "429" in text or "too many requests" in text:
+        return (
+            "YouTube временно ограничил запросы (HTTP 429). "
+            "Можно скачать 1080p без предварительного анализа или повторить проверку чуть позже."
+        )
+    if "403" in text or "forbidden" in text:
+        return (
+            "YouTube отклонил запрос анализа (HTTP 403). "
+            "Можно скачать 1080p без предварительного анализа."
+        )
+    if "sign in" in text or "login" in text or "private video" in text:
+        return "Для этого видео YouTube требует авторизацию."
+    if "video unavailable" in text or "unavailable" in text:
+        return "Видео недоступно для анализа с текущего подключения."
+    if timed_out:
+        return (
+            "YouTube слишком долго отвечает на запрос форматов. "
+            "Анализ остановлен по таймауту; можно скачать 1080p без анализа."
+        )
+    return (
+        "Не удалось быстро получить список форматов. "
+        "Можно скачать 1080p без предварительного анализа или повторить проверку."
+    )
+
+
 def analyze_media(
     url: str,
     *,
@@ -296,7 +372,7 @@ def analyze_media(
     status: StatusCallback = lambda _s: None,
     progress: ProgressCallback = lambda _p: None,
     log: LogCallback = lambda _s: None,
-    timeout_seconds: int = 30,
+    timeout_seconds: int = 12,
 ) -> MediaAnalysis:
     url = url.strip()
     if not url:
@@ -305,45 +381,74 @@ def analyze_media(
     root = app_root or Path(__file__).resolve().parent
     tools = resolve_tools(root)
     platform = detect_platform(url)
-    status("Проверяю реальные варианты качества…")
-    progress(8)
+    progress(5)
 
-    command = _common_ytdlp_args(tools, root) + [
+    common = _common_ytdlp_args(tools, root) + [
+        "--socket-timeout",
+        "7",
+        "--retries",
+        "1",
+        "--extractor-retries",
+        "1",
+        "--fragment-retries",
+        "1",
         "--skip-download",
         "--dump-single-json",
-        url,
     ]
-    log("$ " + subprocess.list2cmdline(command))
-    try:
-        result = subprocess.run(
-            command,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            creationflags=_creation_flags(),
-            timeout=timeout_seconds,
+
+    attempts: list[tuple[str, list[str], int]] = [("обычный клиент", [], timeout_seconds)]
+    if platform == "YouTube":
+        attempts.append(
+            (
+                "резервный YouTube-клиент",
+                ["--extractor-args", "youtube:player_client=web_embedded"],
+                8,
+            )
         )
-    except subprocess.TimeoutExpired as exc:
-        raise RuntimeError("Анализ качества занял слишком долго. Повтори попытку.") from exc
 
-    if result.stderr.strip():
-        for line in result.stderr.splitlines():
-            if line.strip():
-                log(line.rstrip())
+    errors: list[str] = []
+    had_timeout = False
 
-    info = _parse_json_output(result.stdout)
-    choices = quality_choices_from_info(info)
-    default_label = _default_quality_label(choices)
-    progress(100)
-    status(f"Найдено вариантов качества: {len(choices)}")
-    return MediaAnalysis(
-        platform=platform,
-        title=str(info.get("title") or ""),
-        choices=choices,
-        default_label=default_label,
-    )
+    for index, (label, extra, timeout) in enumerate(attempts, start=1):
+        status(f"Анализ форматов · попытка {index}/{len(attempts)} · {label}")
+        log(f"[analysis] Попытка {index}/{len(attempts)}: {label}; таймаут {timeout} с")
+        command = common + extra + [url]
+        code, stdout, stderr, timed_out = _run_analysis_capture(
+            command,
+            timeout_seconds=timeout,
+            log=log,
+        )
+        had_timeout = had_timeout or timed_out
+
+        if stderr.strip():
+            for line in stderr.splitlines():
+                if line.strip():
+                    log(line.rstrip())
+            errors.append(stderr.strip())
+
+        if stdout.strip():
+            try:
+                info = _parse_json_output(stdout)
+                choices = quality_choices_from_info(info)
+                default_label = _default_quality_label(choices)
+                progress(100)
+                status(f"Форматы получены · вариантов: {len(choices)}")
+                return MediaAnalysis(
+                    platform=platform,
+                    title=str(info.get("title") or ""),
+                    choices=choices,
+                    default_label=default_label,
+                )
+            except Exception as exc:
+                errors.append(str(exc))
+                log(f"[analysis] Ответ получен, но не разобран: {exc}")
+
+        if timed_out:
+            log(f"[analysis] Попытка {index} остановлена по таймауту.")
+        elif code != 0:
+            log(f"[analysis] yt-dlp завершился с кодом {code}.")
+
+    raise RuntimeError(_friendly_analysis_error(errors, had_timeout))
 
 
 def _height_from_quality(quality: str) -> int | None:
@@ -353,6 +458,13 @@ def _height_from_quality(quality: str) -> int | None:
 
 def _format_selector(quality: str) -> str:
     height = _height_from_quality(quality)
+    unverified = "без анализа" in (quality or "").lower()
+    if height and unverified:
+        return (
+            f"bestvideo[height<={height}][vcodec^=avc1]+bestaudio[acodec^=mp4a]/"
+            f"bestvideo[height<={height}]+bestaudio/"
+            f"best[height<={height}]/best"
+        )
     if height:
         return (
             f"bestvideo[height={height}][vcodec^=avc1]+bestaudio[acodec^=mp4a]/"
@@ -374,10 +486,12 @@ def _download_with_ytdlp(
 ) -> bool:
     args = _common_ytdlp_args(tools, app_root) + [
         "--windows-filenames",
+        "--socket-timeout",
+        "10",
         "--retries",
-        "10",
+        "3",
         "--fragment-retries",
-        "10",
+        "5",
         "--continue",
         "--newline",
         "--progress",
