@@ -4,6 +4,7 @@ import ctypes
 import gc
 import os
 import re
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
@@ -40,6 +41,8 @@ def _app_data_dir() -> Path:
     local = os.environ.get("LOCALAPPDATA")
     if local:
         return Path(local) / "RNGN-Media"
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / "RNGN Media"
     return Path.home() / ".rngn-media"
 
 
@@ -169,7 +172,7 @@ def transcribe_media(
     try:
         from faster_whisper import WhisperModel
     except Exception as exc:
-        raise RuntimeError("Не установлен faster-whisper. Запусти desktop\\SETUP_WINDOWS.bat.") from exc
+        raise RuntimeError("Не установлен faster-whisper. Переустанови RNGN Media.") from exc
 
     prefer_gpu = _cuda_available()
     attempts = [("cuda", "float16"), ("cpu", "int8")] if prefer_gpu else [("cpu", "int8")]
