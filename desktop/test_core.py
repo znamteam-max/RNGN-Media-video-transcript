@@ -152,6 +152,10 @@ class DownloaderQualityTests(unittest.TestCase):
         self.assertIn("height=1080", selector)
         self.assertNotIn("height<=1080", selector)
 
+    def test_unverified_quality_uses_ceiling(self) -> None:
+        selector = _format_selector("1080p — без анализа → MP4 H.264 + AAC")
+        self.assertIn("height<=1080", selector)
+
     def test_only_real_heights_are_offered(self) -> None:
         info = {
             "formats": [
