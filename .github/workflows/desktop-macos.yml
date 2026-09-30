@@ -60,10 +60,7 @@ jobs:
           file "$GDL"
 
           if [[ "$ARCH" == "x86_64" ]] && ! file "$GDL" | grep -q "x86_64"; then
-            cat > /tmp/gallery_dl_launcher.py <<'PY'
-import gallery_dl
-raise SystemExit(gallery_dl.main())
-PY
+            printf '%s\n' 'import gallery_dl' 'raise SystemExit(gallery_dl.main())' > /tmp/gallery_dl_launcher.py
             rm -rf /tmp/gallery-dl-build /tmp/gallery-dl-dist
             pyinstaller --noconfirm --clean --onefile \
               --name "gallery-dl" \
@@ -75,10 +72,7 @@ PY
           fi
 
           if [[ "$ARCH" == "arm64" ]] && ! file "$GDL" | grep -q "arm64"; then
-            cat > /tmp/gallery_dl_launcher.py <<'PY'
-import gallery_dl
-raise SystemExit(gallery_dl.main())
-PY
+            printf '%s\n' 'import gallery_dl' 'raise SystemExit(gallery_dl.main())' > /tmp/gallery_dl_launcher.py
             rm -rf /tmp/gallery-dl-build /tmp/gallery-dl-dist
             pyinstaller --noconfirm --clean --onefile \
               --name "gallery-dl" \
