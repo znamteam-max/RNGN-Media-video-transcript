@@ -41,7 +41,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r desktop/requirements.txt
-          pip install pyinstaller
+          pip install pyinstaller gallery-dl
 
       - name: Install macOS media build tools
         run: |
@@ -51,6 +51,46 @@ jobs:
         run: |
           chmod +x desktop/bootstrap_tools_macos.sh
           desktop/bootstrap_tools_macos.sh
+
+      - name: Ensure native gallery-dl binary
+        run: |
+          GDL="desktop/tools/bin/gallery-dl"
+          ARCH="$(uname -m)"
+          echo "Runner architecture: $ARCH"
+          file "$GDL"
+
+          if [[ "$ARCH" == "x86_64" ]] && ! file "$GDL" | grep -q "x86_64"; then
+            cat > /tmp/gallery_dl_launcher.py <<'PY'
+import gallery_dl
+raise SystemExit(gallery_dl.main())
+PY
+            rm -rf /tmp/gallery-dl-build /tmp/gallery-dl-dist
+            pyinstaller --noconfirm --clean --onefile \
+              --name "gallery-dl" \
+              --distpath /tmp/gallery-dl-dist \
+              --workpath /tmp/gallery-dl-build \
+              /tmp/gallery_dl_launcher.py
+            cp /tmp/gallery-dl-dist/gallery-dl "$GDL"
+            chmod +x "$GDL"
+          fi
+
+          if [[ "$ARCH" == "arm64" ]] && ! file "$GDL" | grep -q "arm64"; then
+            cat > /tmp/gallery_dl_launcher.py <<'PY'
+import gallery_dl
+raise SystemExit(gallery_dl.main())
+PY
+            rm -rf /tmp/gallery-dl-build /tmp/gallery-dl-dist
+            pyinstaller --noconfirm --clean --onefile \
+              --name "gallery-dl" \
+              --distpath /tmp/gallery-dl-dist \
+              --workpath /tmp/gallery-dl-build \
+              /tmp/gallery_dl_launcher.py
+            cp /tmp/gallery-dl-dist/gallery-dl "$GDL"
+            chmod +x "$GDL"
+          fi
+
+          file "$GDL"
+          "$GDL" --version
 
       - name: Core tests
         working-directory: desktop
