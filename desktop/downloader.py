@@ -149,6 +149,23 @@ def _cookies_args(app_root: Path) -> list[str]:
     return []
 
 
+def _pot_provider_args(tools: Toolset) -> list[str]:
+    tools_root = tools.yt_dlp.parent.parent
+    plugin_dir = tools_root / "yt-dlp-plugins"
+    plugin_zip = plugin_dir / "bgutil-ytdlp-pot-provider.zip"
+    server_home = tools_root / "bgutil-ytdlp-pot-provider" / "server"
+
+    if not (plugin_zip.is_file() and server_home.is_dir() and tools.deno and tools.deno.is_file()):
+        return []
+
+    return [
+        "--plugin-dirs",
+        str(plugin_dir),
+        "--extractor-args",
+        f"youtubepot-bgutilscript:server_home={server_home}",
+    ]
+
+
 def _common_ytdlp_args(tools: Toolset, app_root: Path) -> list[str]:
     args = [
         str(tools.yt_dlp),
@@ -160,6 +177,7 @@ def _common_ytdlp_args(tools: Toolset, app_root: Path) -> list[str]:
     ]
     if tools.deno:
         args += ["--js-runtimes", f"deno:{tools.deno}"]
+    args += _pot_provider_args(tools)
     args += _cookies_args(app_root)
     return args
 
