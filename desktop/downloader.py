@@ -852,9 +852,18 @@ def download_media(
             success = _download_with_ytdlp(
                     url, job, tools, root, status, progress, log, quality, clip_start, clip_end
                 )
-            if not success and platform in {"TikTok", "VK", "X_Twitter", "Instagram"}:
+            if (
+                not success
+                and clip_start is None
+                and platform in {"TikTok", "VK", "X_Twitter", "Instagram"}
+            ):
                 log("yt-dlp не справился; пробую gallery-dl.")
                 success = _download_with_gallery(url, job, tools, root, status, progress, log)
+            elif not success and clip_start is not None:
+                log(
+                    "Резервный gallery-dl отключён: он не умеет гарантировать "
+                    "вырезание выбранного фрагмента по таймкодам."
+                )
 
         files = [path for path in job.rglob("*") if path.is_file()]
         if not success or not files:
