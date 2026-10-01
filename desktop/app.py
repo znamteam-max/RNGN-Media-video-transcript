@@ -12,7 +12,7 @@ from pathlib import Path
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
-from downloader import MediaAnalysis, analyze_media, download_media
+from downloader import MediaAnalysis, analyze_media, download_media, validate_clip_range
 from platforms import detect_platform, platform_folder
 from transcriber import LANGUAGES, MODEL_PROFILES, transcribe_media
 from youtube_subtitles import (
@@ -23,7 +23,7 @@ from youtube_subtitles import (
 )
 
 APP_NAME = "RNGN Media"
-APP_VERSION = "0.3.3"
+APP_VERSION = "0.3.4"
 
 BG = "#F3F5F8"
 CARD = "#FFFFFF"
@@ -84,6 +84,11 @@ class App:
         self.quality = tk.StringVar(value="")
         self.quality_status = tk.StringVar(value="После вставки ссылки покажу только реально доступные варианты.")
         self.quality_values: list[str] = []
+        self.clip_start = tk.StringVar()
+        self.clip_end = tk.StringVar()
+        self.clip_status = tk.StringVar(
+            value="Для YouTube и VK можно скачать только нужный отрезок."
+        )
 
         self.media_file = tk.StringVar()
         self.model_profile = tk.StringVar(value="Быстрая — large-v3-turbo (рекомендуется)")
@@ -305,7 +310,29 @@ class App:
         )
         self.quality_refresh_button.pack(side="right")
 
-        output = self._card(frame, "3. Сохранение")
+        clip = self._card(frame, "3. Фрагмент по таймкодам · необязательно")
+        clip_row = ttk.Frame(clip, style="Card.TFrame")
+        clip_row.pack(fill="x")
+
+        start_box = ttk.Frame(clip_row, style="Card.TFrame")
+        start_box.pack(side="left", fill="x", expand=True, padx=(0, 7))
+        ttk.Label(start_box, text="От", style="Card.TLabel").pack(anchor="w")
+        self.clip_start_entry = ttk.Entry(start_box, textvariable=self.clip_start, state="disabled")
+        self.clip_start_entry.pack(fill="x", pady=(4, 0))
+
+        end_box = ttk.Frame(clip_row, style="Card.TFrame")
+        end_box.pack(side="left", fill="x", expand=True, padx=(7, 0))
+        ttk.Label(end_box, text="До", style="Card.TLabel").pack(anchor="w")
+        self.clip_end_entry = ttk.Entry(end_box, textvariable=self.clip_end, state="disabled")
+        self.clip_end_entry.pack(fill="x", pady=(4, 0))
+
+        ttk.Label(
+            clip,
+            textvariable=self.clip_status,
+            style="Muted.Card.TLabel",
+        ).pack(anchor="w", pady=(8, 0))
+
+        output = self._card(frame, "4. Сохранение")
         self._output_controls(output, self.download_output)
 
         action = ttk.Frame(frame, style="App.TFrame")
@@ -320,7 +347,7 @@ class App:
         self.download_button.pack(side="left")
 
         log_card = self._card(frame, "Технический лог")
-        self.download_log = self._log_box(log_card, height=10)
+        self.download_log = self._log_box(log_card, height=8)
 
     def _build_transcribe_tab(self, notebook: ttk.Notebook) -> None:
         frame = self._tab_frame(notebook, "Транскрибировать")
@@ -421,6 +448,19 @@ class App:
             else ("Ссылка пока не распознана" if value else "Вставь ссылку — платформа определится автоматически")
         )
         self._refresh_output_paths()
+        clip_supported = platform in {"YouTube", "VK"}
+        clip_state = "normal" if clip_supported else "disabled"
+        self.clip_start_entry.configure(state=clip_state)
+        self.clip_end_entry.configure(state=clip_state)
+        if clip_supported:
+            self.clip_status.set(
+                "Необязательно. Введи оба таймкода: 01:23 или 00:01:23. "
+                "Скачается только этот отрезок."
+            )
+        else:
+            self.clip_start.set("")
+            self.clip_end.set("")
+            self.clip_status.set("Вырезание по таймкодам доступно для YouTube и VK.")
 
         if self.quality_after_id:
             self.root.after_cancel(self.quality_after_id)
@@ -544,6 +584,7 @@ class App:
     def _start_download(self) -> None:
         if self.busy:
             return
+
         url = clean_pasted_url(self.url.get())
         if not url:
             messagebox.showerror(APP_NAME, "Вставь ссылку.")
@@ -552,13 +593,43 @@ class App:
             messagebox.showerror(APP_NAME, "Сначала дождись определения доступного качества.")
             return
 
+        platform = detect_platform(url)
+        start_text = self.clip_start.get().strip()
+        end_text = self.clip_end.get().strip()
+        clip_start: float | None = None
+        clip_end: float | None = None
+
+        if start_text or end_text:
+            if platform not in {"YouTube", "VK"}:
+                messagebox.showerror(APP_NAME, "Фрагменты по таймкодам работают только для YouTube и VK.")
+                return
+            if not start_text or not end_text:
+                messagebox.showerror(APP_NAME, "Для фрагмента укажи оба таймкода: «От» и «До».")
+                return
+            try:
+                clip_start, clip_end = validate_clip_range(start_text, end_text)
+            except ValueError as exc:
+                messagebox.showerror(APP_NAME, str(exc))
+                return
+
         out = Path(self.output_root.get()).expanduser()
         quality = self.quality.get()
         self._set_busy(True)
         self.status.set("Запускаю скачивание…")
-        threading.Thread(target=self._download_worker, args=(url, out, quality), daemon=True).start()
+        threading.Thread(
+            target=self._download_worker,
+            args=(url, out, quality, clip_start, clip_end),
+            daemon=True,
+        ).start()
 
-    def _download_worker(self, url: str, out: Path, quality: str) -> None:
+    def _download_worker(
+        self,
+        url: str,
+        out: Path,
+        quality: str,
+        clip_start: float | None,
+        clip_end: float | None,
+    ) -> None:
         try:
             outputs = download_media(
                 url,
@@ -567,8 +638,11 @@ class App:
                 progress=lambda p: self._post("progress", p),
                 log=lambda s: self._post("download_log", s),
                 quality=quality,
+                clip_start=clip_start,
+                clip_end=clip_end,
             )
-            self._post("done", ("Скачивание завершено", outputs, "download_log"))
+            title = "Фрагмент сохранён" if clip_start is not None else "Скачивание завершено"
+            self._post("done", (title, outputs, "download_log"))
         except Exception as exc:
             self._post("error", f"{exc}\n\n{traceback.format_exc()}")
 
@@ -752,9 +826,19 @@ class App:
                     self.quality_values = [choice.label for choice in analysis.choices]
                     self.quality_combo.configure(values=self.quality_values, state="readonly")
                     self.quality.set(analysis.default_label)
-                    self.quality_status.set(
-                        f"Проверено по источнику · доступно вариантов: {len(self.quality_values)}"
+                    has_unknown_audio = any(
+                        "звук: не определён источником" in label
+                        for label in self.quality_values
                     )
+                    if has_unknown_audio:
+                        self.quality_status.set(
+                            "Источник не сообщает аудиокодек заранее. "
+                            "После скачивания FFprobe проверит реальный файл и сохранит звук, если он есть."
+                        )
+                    else:
+                        self.quality_status.set(
+                            f"Проверено по источнику · доступно вариантов: {len(self.quality_values)}"
+                        )
                     if not self.busy:
                         self.download_button.configure(state="normal")
 
