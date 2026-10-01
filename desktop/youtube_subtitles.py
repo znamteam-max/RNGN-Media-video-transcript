@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
-from downloader import Toolset, resolve_tools
+from downloader import Toolset, _pot_provider_args, resolve_tools
 from platforms import detect_platform
 
 StatusCallback = Callable[[str], None]
@@ -108,6 +108,7 @@ def _common_ytdlp_args(tools: Toolset, app_root: Path) -> list[str]:
     ]
     if tools.deno:
         args += ["--js-runtimes", f"deno:{tools.deno}"]
+    args += _pot_provider_args(tools)
     args += _cookies_args(app_root)
     return args
 
@@ -561,6 +562,7 @@ def _download_with_ytdlp_fallback(
     log: LogCallback,
 ) -> str:
     attempts = [
+        ("mweb", ["--extractor-args", "youtube:player_client=mweb"]),
         ("web_embedded", ["--extractor-args", "youtube:player_client=web_embedded"]),
         ("tv", ["--extractor-args", "youtube:player_client=tv"]),
         ("default", []),
@@ -598,9 +600,15 @@ def _download_with_ytdlp_fallback(
             if result.returncode == 0:
                 log("yt-dlp завершился без ошибки, но SRT не найден.")
 
+    provider_ready = bool(_pot_provider_args(tools))
+    if provider_ready:
+        raise RuntimeError(
+            "YouTube не отдал выбранную дорожку даже через автоматический PO Token provider. "
+            "Возможно, YouTube временно ограничил текущий IP/сессию."
+        )
     raise RuntimeError(
         "YouTube не отдал выбранную дорожку субтитров. "
-        "Для этого видео YouTube требует дополнительную авторизацию/PO token."
+        "Автоматический PO Token provider не найден в этой сборке."
     )
 
 def srt_to_text(srt_text: str) -> str:
