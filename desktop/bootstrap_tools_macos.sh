@@ -63,7 +63,8 @@ git clone --depth 1 --branch "$PROVIDER_VERSION"   https://github.com/Brainicism
 
 (
   cd "$PROVIDER_SOURCE/server"
-  "$BIN/deno" install --allow-scripts=npm:canvas --frozen
+  npm ci --omit=dev
+  "$BIN/deno" run --allow-env --allow-net --allow-ffi=. --allow-read=. src/generate_once.ts --version
 )
 
 rm -rf "$PROVIDER_DEST"
