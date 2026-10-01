@@ -103,12 +103,11 @@ jobs:
       - name: Bundle media tools into app
         run: |
           APP="dist/RNGN Media.app"
-          mkdir -p "$APP/Contents/Resources/tools/bin" "$APP/Contents/Resources/tools/lib"
-          cp desktop/tools/bin/* "$APP/Contents/Resources/tools/bin/"
-          cp desktop/tools/lib/* "$APP/Contents/Resources/tools/lib/" 2>/dev/null || true
+          mkdir -p "$APP/Contents/Resources/tools"
+          cp -R desktop/tools/. "$APP/Contents/Resources/tools/"
           chmod +x "$APP/Contents/Resources/tools/bin/"*
-          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString 0.3.4" "$APP/Contents/Info.plist" || true
-          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion 0.3.4" "$APP/Contents/Info.plist" || true
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString 0.3.5" "$APP/Contents/Info.plist" || true
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion 0.3.5" "$APP/Contents/Info.plist" || true
 
       - name: Smoke test bundled tools
         run: |
@@ -124,6 +123,9 @@ jobs:
           "$BIN/ffmpeg" -version | head -n 1
           "$BIN/ffprobe" -version | head -n 1
           "$BIN/deno" --version | head -n 1
+          test -f "$APP/Contents/Resources/tools/yt-dlp-plugins/bgutil-ytdlp-pot-provider.zip"
+          test -f "$APP/Contents/Resources/tools/bgutil-ytdlp-pot-provider/server/src/generate_once.ts"
+          test -d "$APP/Contents/Resources/tools/bgutil-ytdlp-pot-provider/server/node_modules"
           file "$APP/Contents/MacOS/RNGN Media"
 
       - name: Ad-hoc sign app
@@ -135,6 +137,9 @@ jobs:
           find "$APP/Contents/Resources/tools/lib" -type f \( -name "*.dylib" -o -name "*.so" \) -print0 2>/dev/null | while IFS= read -r -d '' file; do
             codesign --force --sign - "$file" || true
           done
+          find "$APP/Contents/Resources/tools" -type f -name "*.node" -print0 2>/dev/null | while IFS= read -r -d '' file; do
+            codesign --force --sign - "$file" || true
+          done
           codesign --force --deep --sign - "$APP"
           codesign --verify --deep --strict "$APP"
 
@@ -142,7 +147,7 @@ jobs:
         run: |
           STAGE="dmg-stage"
           APP="dist/RNGN Media.app"
-          DMG="RNGN-Media-macOS-${{ matrix.label }}-0.3.4.dmg"
+          DMG="RNGN-Media-macOS-${{ matrix.label }}-0.3.5.dmg"
           rm -rf "$STAGE"
           mkdir -p "$STAGE"
           cp -R "$APP" "$STAGE/"
@@ -153,8 +158,8 @@ jobs:
       - name: Upload DMG
         uses: actions/upload-artifact@v4
         with:
-          name: RNGN-Media-macOS-${{ matrix.label }}-0.3.4
-          path: RNGN-Media-macOS-${{ matrix.label }}-0.3.4.dmg
+          name: RNGN-Media-macOS-${{ matrix.label }}-0.3.5
+          path: RNGN-Media-macOS-${{ matrix.label }}-0.3.5.dmg
           if-no-files-found: error
           retention-days: 30
 
@@ -165,7 +170,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          pattern: RNGN-Media-macOS-*-0.3.4
+          pattern: RNGN-Media-macOS-*-0.3.5
           merge-multiple: true
           path: release
 
@@ -173,12 +178,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="macos-v0.3.4"
+          TAG="macos-v0.3.5"
           gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 && \
             gh release delete "$TAG" --repo "$GITHUB_REPOSITORY" --cleanup-tag -y || true
 
           gh release create "$TAG" release/*.dmg \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
-            --title "RNGN Media macOS v0.3.4" \
-            --notes "macOS build of RNGN Media v0.3.4 for Apple Silicon and Intel. Adds YouTube/VK clip downloads by timecode and improved VK audio detection. Includes downloader, faster-whisper transcription, YouTube subtitles, yt-dlp, gallery-dl, Deno and bundled FFmpeg. App is ad-hoc signed but not Apple-notarized yet."
+            --title "RNGN Media macOS v0.3.5" \
+            --notes "macOS build of RNGN Media v0.3.5 for Apple Silicon and Intel. Adds an automatic YouTube PO Token provider for subtitles, plus YouTube/VK clip downloads and improved VK audio detection. Includes downloader, faster-whisper transcription, YouTube subtitles, yt-dlp, gallery-dl, Deno and bundled FFmpeg. App is ad-hoc signed but not Apple-notarized yet."
