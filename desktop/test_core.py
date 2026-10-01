@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 
 from app import clean_pasted_url, is_paste_shortcut
-from downloader import _format_selector, quality_choices_from_info
+from downloader import _format_selector, parse_timecode, quality_choices_from_info, validate_clip_range
 
 from platforms import detect_platform, platform_folder
 from transcriber import Word, _build_cues, _format_txt, _timestamp
@@ -172,6 +172,32 @@ class DownloaderQualityTests(unittest.TestCase):
         self.assertEqual(choices[0].label, "1080p — MP4 H.264 + AAC")
         self.assertIn("VP9", choices[1].label)
         self.assertIn("→ MP4 H.264 + AAC", choices[1].label)
+
+    def test_vk_unknown_audio_is_not_called_silent(self) -> None:
+        info = {
+            "formats": [
+                {
+                    "format_id": "hls",
+                    "height": None,
+                    "vcodec": "unknown",
+                    "acodec": "unknown",
+                    "url": "https://example.invalid/master.m3u8",
+                }
+            ]
+        }
+        choice = quality_choices_from_info(info)[0]
+        self.assertIn("звук: не определён источником", choice.label)
+        self.assertNotIn("без аудио", choice.label)
+
+    def test_timecode_parsing(self) -> None:
+        self.assertEqual(parse_timecode("75"), 75)
+        self.assertEqual(parse_timecode("01:15"), 75)
+        self.assertEqual(parse_timecode("1:02:03"), 3723)
+
+    def test_clip_range_validation(self) -> None:
+        self.assertEqual(validate_clip_range("01:00", "01:30"), (60, 90))
+        with self.assertRaises(ValueError):
+            validate_clip_range("01:30", "01:00")
 
 
 class UiHelpersTests(unittest.TestCase):
