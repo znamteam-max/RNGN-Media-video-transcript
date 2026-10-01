@@ -183,9 +183,10 @@ def _parse_json_output(output: str) -> dict:
 
 
 def _codec_family(codec: str | None, *, audio: bool = False) -> str:
-    value = (codec or "").lower()
-    if not value or value == "none":
-        return "без аудио" if audio else "неизвестно"
+    raw = (codec or "").strip()
+    value = raw.lower()
+    if not value or value in {"unknown", "none"}:
+        return "не определён" if audio else "не определён"
     if value.startswith("avc1") or value == "h264":
         return "H.264"
     if value.startswith("vp09") or value.startswith("vp9"):
@@ -200,14 +201,25 @@ def _codec_family(codec: str | None, *, audio: bool = False) -> str:
         return "Opus"
     if value.startswith("vorbis"):
         return "Vorbis"
-    return codec or ("аудио" if audio else "видео")
+    return raw or ("аудио" if audio else "видео")
+
+
+def _codec_state(item: dict, key: str) -> str:
+    if key not in item or item.get(key) is None:
+        return "unknown"
+    value = str(item.get(key) or "").strip().lower()
+    if not value or value == "unknown":
+        return "unknown"
+    if value == "none":
+        return "none"
+    return "present"
 
 
 def _best_codec_name(formats: list[dict], *, audio: bool = False) -> str:
     key = "acodec" if audio else "vcodec"
-    candidates = [item for item in formats if str(item.get(key) or "none") != "none"]
+    candidates = [item for item in formats if _codec_state(item, key) == "present"]
     if not candidates:
-        return "без аудио" if audio else "неизвестно"
+        return "не определён"
     candidates.sort(
         key=lambda item: (
             float(item.get("tbr") or 0),
@@ -221,47 +233,79 @@ def _best_codec_name(formats: list[dict], *, audio: bool = False) -> str:
 
 def _h264_available(formats: list[dict]) -> bool:
     return any(
-        _codec_family(str(item.get("vcodec") or "")) == "H.264"
+        _codec_state(item, "vcodec") == "present"
+        and _codec_family(str(item.get("vcodec") or "")) == "H.264"
         for item in formats
-        if str(item.get("vcodec") or "none") != "none"
     )
 
 
 def _aac_available(formats: list[dict]) -> bool:
     return any(
-        _codec_family(str(item.get("acodec") or ""), audio=True) == "AAC"
+        _codec_state(item, "acodec") == "present"
+        and _codec_family(str(item.get("acodec") or ""), audio=True) == "AAC"
         for item in formats
-        if str(item.get("acodec") or "none") != "none"
     )
+
+
+def _audio_description(info: dict, formats: list[dict]) -> tuple[str, bool]:
+    all_audio_candidates = [
+        item for item in formats
+        if _codec_state(item, "acodec") == "present"
+    ]
+    if all_audio_candidates:
+        if _aac_available(all_audio_candidates):
+            return "AAC", True
+        return _best_codec_name(all_audio_candidates, audio=True), True
+
+    top_state = _codec_state(info, "acodec")
+    if top_state == "present":
+        codec = _codec_family(str(info.get("acodec") or ""), audio=True)
+        return codec, codec == "AAC"
+
+    format_states = [_codec_state(item, "acodec") for item in formats]
+    if format_states and all(state == "none" for state in format_states):
+        return "без аудио", False
+
+    # VK and some HLS manifests often omit codec metadata entirely even though
+    # the actual downloaded stream contains audio. Never label that as "без аудио".
+    return "звук: не определён источником", False
+
+
+def _video_description(info: dict, formats: list[dict]) -> tuple[str, bool]:
+    video_formats = [item for item in formats if _codec_state(item, "vcodec") == "present"]
+    if video_formats:
+        if _h264_available(video_formats):
+            return "H.264", True
+        return _best_codec_name(video_formats), False
+
+    top_state = _codec_state(info, "vcodec")
+    if top_state == "present":
+        codec = _codec_family(str(info.get("vcodec") or ""))
+        return codec, codec == "H.264"
+
+    return "видео: кодек не определён источником", False
 
 
 def _choice_label(height: int | None, video_codec: str, audio_codec: str, direct: bool) -> str:
     prefix = f"{height}p" if height else "Лучшее доступное"
     if direct:
         return f"{prefix} — MP4 H.264 + AAC"
+    if video_codec.startswith("видео:") or audio_codec.startswith("звук:"):
+        return f"{prefix} — {video_codec}; {audio_codec} → MP4 H.264 + AAC"
     return f"{prefix} — {video_codec} + {audio_codec} → MP4 H.264 + AAC"
 
 
 def quality_choices_from_info(info: dict) -> tuple[QualityChoice, ...]:
     formats = [item for item in (info.get("formats") or []) if isinstance(item, dict)]
-    audio_formats = [
-        item
-        for item in formats
-        if str(item.get("acodec") or "none") != "none"
-        and str(item.get("vcodec") or "none") == "none"
-    ]
-    if not audio_formats:
-        audio_formats = [item for item in formats if str(item.get("acodec") or "none") != "none"]
 
-    aac_any = _aac_available(audio_formats)
-    fallback_audio = "AAC" if aac_any else _best_codec_name(audio_formats, audio=True)
+    fallback_audio, aac_any = _audio_description(info, formats)
 
     heights = sorted(
         {
             int(item["height"])
             for item in formats
             if item.get("height")
-            and str(item.get("vcodec") or "none") != "none"
+            and _codec_state(item, "vcodec") != "none"
             and int(item["height"]) > 0
         },
         reverse=True,
@@ -273,10 +317,9 @@ def quality_choices_from_info(info: dict) -> tuple[QualityChoice, ...]:
             item
             for item in formats
             if int(item.get("height") or 0) == height
-            and str(item.get("vcodec") or "none") != "none"
+            and _codec_state(item, "vcodec") != "none"
         ]
-        h264 = _h264_available(video_formats)
-        source_video = "H.264" if h264 else _best_codec_name(video_formats)
+        source_video, h264 = _video_description(info, video_formats)
         direct = h264 and aac_any
         label = _choice_label(height, source_video, fallback_audio, direct)
         choices.append(QualityChoice(label, height, source_video, fallback_audio, direct))
@@ -284,9 +327,8 @@ def quality_choices_from_info(info: dict) -> tuple[QualityChoice, ...]:
     if choices:
         return tuple(choices)
 
-    video_formats = [item for item in formats if str(item.get("vcodec") or "none") != "none"]
-    source_video = "H.264" if _h264_available(video_formats) else _best_codec_name(video_formats)
-    direct = _h264_available(video_formats) and aac_any
+    source_video, h264 = _video_description(info, formats)
+    direct = h264 and aac_any
     return (
         QualityChoice(
             _choice_label(None, source_video, fallback_audio, direct),
@@ -296,6 +338,54 @@ def quality_choices_from_info(info: dict) -> tuple[QualityChoice, ...]:
             direct,
         ),
     )
+
+
+def parse_timecode(value: str) -> float:
+    text = (value or "").strip().replace(",", ".")
+    if not text:
+        raise ValueError("Таймкод пустой.")
+
+    parts = text.split(":")
+    if len(parts) > 3:
+        raise ValueError("Используй формат SS, MM:SS или HH:MM:SS.")
+
+    try:
+        numbers = [float(part) for part in parts]
+    except ValueError as exc:
+        raise ValueError("Таймкод должен содержать только цифры и двоеточия.") from exc
+
+    if any(number < 0 for number in numbers):
+        raise ValueError("Таймкод не может быть отрицательным.")
+
+    if len(numbers) == 1:
+        seconds = numbers[0]
+    elif len(numbers) == 2:
+        minutes, seconds_part = numbers
+        if seconds_part >= 60:
+            raise ValueError("Секунды в MM:SS должны быть меньше 60.")
+        seconds = minutes * 60 + seconds_part
+    else:
+        hours, minutes, seconds_part = numbers
+        if minutes >= 60 or seconds_part >= 60:
+            raise ValueError("Минуты и секунды в HH:MM:SS должны быть меньше 60.")
+        seconds = hours * 3600 + minutes * 60 + seconds_part
+
+    return seconds
+
+
+def validate_clip_range(start_text: str, end_text: str) -> tuple[float, float]:
+    start = parse_timecode(start_text)
+    end = parse_timecode(end_text)
+    if end <= start:
+        raise ValueError("Конечный таймкод должен быть больше начального.")
+    return start, end
+
+
+def _format_seconds_for_section(seconds: float) -> str:
+    value = max(0.0, float(seconds))
+    if value.is_integer():
+        return str(int(value))
+    return f"{value:.3f}".rstrip("0").rstrip(".")
 
 
 def _default_quality_label(choices: tuple[QualityChoice, ...]) -> str:
@@ -505,6 +595,8 @@ def _download_with_ytdlp(
     progress: ProgressCallback,
     log: LogCallback,
     quality: str,
+    clip_start: float | None = None,
+    clip_end: float | None = None,
 ) -> bool:
     args = _common_ytdlp_args(tools, app_root) + [
         "--windows-filenames",
@@ -525,11 +617,24 @@ def _download_with_ytdlp(
         "mp4",
         "--remux-video",
         "mp4",
+    ]
+
+    if clip_start is not None and clip_end is not None:
+        section = f"*{_format_seconds_for_section(clip_start)}-{_format_seconds_for_section(clip_end)}"
+        args += ["--download-sections", section, "--force-keyframes-at-cuts"]
+        log(f"Фрагмент: {section}")
+        status(
+            f"Скачиваю фрагмент { _format_seconds_for_section(clip_start) }–"
+            f"{ _format_seconds_for_section(clip_end) } сек · {quality}…"
+        )
+    else:
+        status(f"Скачиваю: {quality}…")
+
+    args += [
         "-o",
         str(job / "%(title).150B [%(id)s].%(ext)s"),
         url,
     ]
-    status(f"Скачиваю: {quality}…")
     log(f"Выбранное качество: {quality}")
     return _run_streaming(args, status=status, progress=progress, log=log) == 0
 
@@ -699,6 +804,8 @@ def download_media(
     log: LogCallback = lambda _s: None,
     app_root: Path | None = None,
     quality: str = "1080p — MP4 H.264 + AAC",
+    clip_start: float | None = None,
+    clip_end: float | None = None,
 ) -> list[Path]:
     url = url.strip()
     if not url:
@@ -707,6 +814,14 @@ def download_media(
     root = app_root or Path(__file__).resolve().parent
     tools = resolve_tools(root)
     platform = detect_platform(url)
+    if (clip_start is None) != (clip_end is None):
+        raise ValueError("Для фрагмента нужны оба таймкода: начало и конец.")
+    if clip_start is not None and clip_end is not None:
+        if platform not in {"YouTube", "VK"}:
+            raise ValueError("Вырезание по таймкодам сейчас работает только для YouTube и VK.")
+        if clip_end <= clip_start:
+            raise ValueError("Конечный таймкод должен быть больше начального.")
+
     destination = output_root / platform_folder(platform)
     destination.mkdir(parents=True, exist_ok=True)
     progress(1)
@@ -720,9 +835,13 @@ def download_media(
             success = _download_with_gallery(url, job, tools, root, status, progress, log)
             if not success:
                 log("gallery-dl не справился; пробую yt-dlp.")
-                success = _download_with_ytdlp(url, job, tools, root, status, progress, log, quality)
+                success = _download_with_ytdlp(
+                    url, job, tools, root, status, progress, log, quality, clip_start, clip_end
+                )
         else:
-            success = _download_with_ytdlp(url, job, tools, root, status, progress, log, quality)
+            success = _download_with_ytdlp(
+                    url, job, tools, root, status, progress, log, quality, clip_start, clip_end
+                )
             if not success and platform in {"TikTok", "VK", "X_Twitter", "Instagram"}:
                 log("yt-dlp не справился; пробую gallery-dl.")
                 success = _download_with_gallery(url, job, tools, root, status, progress, log)
