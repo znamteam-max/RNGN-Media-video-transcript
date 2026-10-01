@@ -43,7 +43,7 @@ try {
         & npm.cmd ci --omit=dev
         if ($LASTEXITCODE -ne 0) { throw "Failed to install PO Token provider dependencies" }
 
-        & (Join-Path $Bin "deno.exe") run --allow-env --allow-net --allow-ffi=. --allow-read=. "src/generate_once.ts" --version
+        & (Join-Path $Bin "deno.exe") run --allow-env --allow-net --allow-ffi --allow-read --allow-write "src/generate_once.ts" --version
         if ($LASTEXITCODE -ne 0) { throw "PO Token provider Deno smoke test failed" }
     }
     finally {
