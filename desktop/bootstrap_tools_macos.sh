@@ -2,12 +2,15 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
-BIN="$ROOT/tools/bin"
-LIB="$ROOT/tools/lib"
+TOOLS="$ROOT/tools"
+BIN="$TOOLS/bin"
+LIB="$TOOLS/lib"
+PLUGINS="$TOOLS/yt-dlp-plugins"
+PROVIDER_DEST="$TOOLS/bgutil-ytdlp-pot-provider"
 TMP="$(mktemp -d -t rngn-media-tools.XXXXXX)"
 trap 'rm -rf "$TMP"' EXIT
 
-mkdir -p "$BIN" "$LIB"
+mkdir -p "$BIN" "$LIB" "$PLUGINS"
 
 download() {
   local url="$1"
@@ -53,6 +56,22 @@ else
   exit 1
 fi
 
+PROVIDER_VERSION="2.0.0"
+PROVIDER_SOURCE="$TMP/bgutil-ytdlp-pot-provider"
+echo "Preparing automatic YouTube PO Token provider $PROVIDER_VERSION..."
+git clone --depth 1 --branch "$PROVIDER_VERSION"   https://github.com/Brainicism/bgutil-ytdlp-pot-provider.git "$PROVIDER_SOURCE"
+
+(
+  cd "$PROVIDER_SOURCE/server"
+  "$BIN/deno" install --allow-scripts=npm:canvas --frozen
+)
+
+rm -rf "$PROVIDER_DEST"
+cp -R "$PROVIDER_SOURCE" "$PROVIDER_DEST"
+rm -rf "$PROVIDER_DEST/.git"
+
+download   "https://github.com/Brainicism/bgutil-ytdlp-pot-provider/releases/download/$PROVIDER_VERSION/bgutil-ytdlp-pot-provider.zip"   "$PLUGINS/bgutil-ytdlp-pot-provider.zip"
+
 echo
 echo "macOS tools ready:"
 file "$BIN/yt-dlp" || true
@@ -60,3 +79,7 @@ file "$BIN/gallery-dl" || true
 file "$BIN/deno" || true
 file "$BIN/ffmpeg" || true
 file "$BIN/ffprobe" || true
+
+echo "PO Token provider:"
+test -f "$PLUGINS/bgutil-ytdlp-pot-provider.zip"
+test -d "$PROVIDER_DEST/server/node_modules"
