@@ -1,8 +1,11 @@
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
-$Bin = Join-Path $Root "tools\bin"
+$Tools = Join-Path $Root "tools"
+$Bin = Join-Path $Tools "bin"
+$Plugins = Join-Path $Tools "yt-dlp-plugins"
+$ProviderDest = Join-Path $Tools "bgutil-ytdlp-pot-provider"
 $Temp = Join-Path $env:TEMP ("rngn-media-tools-" + [guid]::NewGuid().ToString("N"))
-New-Item -ItemType Directory -Force -Path $Bin,$Temp | Out-Null
+New-Item -ItemType Directory -Force -Path $Bin,$Plugins,$Temp | Out-Null
 
 function Download-File([string]$Url, [string]$Out) {
     Write-Host "Скачиваю: $Url" -ForegroundColor Cyan
@@ -29,7 +32,29 @@ try {
     Copy-Item $ffmpeg.FullName (Join-Path $Bin "ffmpeg.exe") -Force
     Copy-Item $ffprobe.FullName (Join-Path $Bin "ffprobe.exe") -Force
 
+    $ProviderVersion = "2.0.0"
+    $ProviderSource = Join-Path $Temp "bgutil-ytdlp-pot-provider"
+    Write-Host "Готовлю автоматический YouTube PO Token provider $ProviderVersion..." -ForegroundColor Cyan
+    & git clone --depth 1 --branch $ProviderVersion "https://github.com/Brainicism/bgutil-ytdlp-pot-provider.git" $ProviderSource
+    if ($LASTEXITCODE -ne 0) { throw "Не удалось скачать bgutil-ytdlp-pot-provider" }
+
+    Push-Location (Join-Path $ProviderSource "server")
+    try {
+        & (Join-Path $Bin "deno.exe") install --allow-scripts=npm:canvas --frozen
+        if ($LASTEXITCODE -ne 0) { throw "Не удалось установить зависимости PO Token provider" }
+    }
+    finally {
+        Pop-Location
+    }
+
+    Remove-Item $ProviderDest -Recurse -Force -ErrorAction SilentlyContinue
+    Copy-Item $ProviderSource $ProviderDest -Recurse -Force
+    Remove-Item (Join-Path $ProviderDest ".git") -Recurse -Force -ErrorAction SilentlyContinue
+
+    Download-File "https://github.com/Brainicism/bgutil-ytdlp-pot-provider/releases/download/$ProviderVersion/bgutil-ytdlp-pot-provider.zip" (Join-Path $Plugins "bgutil-ytdlp-pot-provider.zip")
+
     Write-Host ""; Write-Host "Инструменты готовы: $Bin" -ForegroundColor Green
+    Write-Host "PO Token provider готов: $ProviderDest" -ForegroundColor Green
 }
 finally {
     Remove-Item $Temp -Recurse -Force -ErrorAction SilentlyContinue
