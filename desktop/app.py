@@ -23,7 +23,7 @@ from youtube_subtitles import (
 )
 
 APP_NAME = "RNGN Media"
-APP_VERSION = "0.3.4"
+APP_VERSION = "0.3.5"
 
 BG = "#F3F5F8"
 CARD = "#FFFFFF"
