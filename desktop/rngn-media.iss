@@ -1,5 +1,5 @@
 #define MyAppName "RNGN Media"
-#define MyAppVersion "0.3.4"
+#define MyAppVersion "0.3.5"
 #define MyAppPublisher "RNGN"
 #define MyAppExeName "RNGN Media.exe"
 
