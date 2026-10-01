@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import tempfile
 import unittest
+from pathlib import Path
 
 from app import clean_pasted_url, is_paste_shortcut
-from downloader import _format_selector, parse_timecode, quality_choices_from_info, validate_clip_range
+from downloader import Toolset, _format_selector, _pot_provider_args, parse_timecode, quality_choices_from_info, validate_clip_range
 
 from platforms import detect_platform, platform_folder
 from transcriber import Word, _build_cues, _format_txt, _timestamp
@@ -198,6 +200,46 @@ class DownloaderQualityTests(unittest.TestCase):
         self.assertEqual(validate_clip_range("01:00", "01:30"), (60, 90))
         with self.assertRaises(ValueError):
             validate_clip_range("01:30", "01:00")
+
+
+class PotProviderTests(unittest.TestCase):
+    def test_pot_provider_args_when_bundled(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tools_root = Path(tmp) / "tools"
+            bin_dir = tools_root / "bin"
+            plugins = tools_root / "yt-dlp-plugins"
+            server = tools_root / "bgutil-ytdlp-pot-provider" / "server"
+            bin_dir.mkdir(parents=True)
+            plugins.mkdir(parents=True)
+            server.mkdir(parents=True)
+
+            for name in ("yt-dlp.exe", "gallery-dl.exe", "ffmpeg.exe", "ffprobe.exe", "deno.exe"):
+                (bin_dir / name).write_bytes(b"test")
+            (plugins / "bgutil-ytdlp-pot-provider.zip").write_bytes(b"zip")
+
+            toolset = Toolset(
+                bin_dir / "yt-dlp.exe",
+                bin_dir / "gallery-dl.exe",
+                bin_dir / "ffmpeg.exe",
+                bin_dir / "ffprobe.exe",
+                bin_dir / "deno.exe",
+            )
+            args = _pot_provider_args(toolset)
+            self.assertIn("--plugin-dirs", args)
+            self.assertTrue(any("server_home=" in item for item in args))
+
+    def test_pot_provider_args_absent_when_not_bundled(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            bin_dir = Path(tmp) / "tools" / "bin"
+            bin_dir.mkdir(parents=True)
+            toolset = Toolset(
+                bin_dir / "yt-dlp.exe",
+                bin_dir / "gallery-dl.exe",
+                bin_dir / "ffmpeg.exe",
+                bin_dir / "ffprobe.exe",
+                None,
+            )
+            self.assertEqual(_pot_provider_args(toolset), [])
 
 
 class UiHelpersTests(unittest.TestCase):
