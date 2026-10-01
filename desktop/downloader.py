@@ -735,6 +735,16 @@ def _convert_for_premiere(
     destination_dir.mkdir(parents=True, exist_ok=True)
     info = _probe(source, tools)
     video_codec, audio_codecs = _video_audio_codecs(info)
+    if audio_codecs:
+        log(
+            "FFprobe после скачивания: "
+            f"video={video_codec or 'unknown'}; audio={', '.join(audio_codecs)}"
+        )
+    else:
+        log(
+            "FFprobe после скачивания: "
+            f"video={video_codec or 'unknown'}; аудиодорожка не обнаружена"
+        )
 
     if source.suffix.lower() == ".mp4" and video_codec == "h264" and (
         not audio_codecs or all(codec == "aac" for codec in audio_codecs)
