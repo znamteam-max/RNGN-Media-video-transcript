@@ -8,7 +8,15 @@ from app import clean_pasted_url, is_paste_shortcut
 from downloader import Toolset, _format_selector, _pot_provider_args, parse_timecode, quality_choices_from_info, validate_clip_range
 
 from platforms import detect_platform, platform_folder
-from transcriber import Word, _build_cues, _format_txt, _timestamp
+from transcriber import (
+    LANGUAGES,
+    MIXED_LANGUAGE_SENTINEL,
+    Word,
+    _build_cues,
+    _format_txt,
+    _language_label,
+    _timestamp,
+)
 from youtube_subtitles import _extract_video_id, _json3_to_srt, _vtt_to_srt, _xml_to_srt, srt_to_text, tracks_from_info
 
 
@@ -53,6 +61,20 @@ class TranscriptFormattingTests(unittest.TestCase):
         text = _format_txt([(0.0, "Первая фраза."), (2.0, "Вторая фраза.")], False)
         self.assertIn("Первая фраза.", text)
         self.assertIn("Вторая фраза.", text)
+
+    def test_mixed_language_is_available(self) -> None:
+        self.assertEqual(LANGUAGES["Авто · микс языков"], MIXED_LANGUAGE_SENTINEL)
+
+    def test_popular_languages_are_available(self) -> None:
+        expected = {"ru", "en", "fr", "es", "zh", "de", "pt", "it", "ja", "ko", "ar"}
+        configured = {code for code in LANGUAGES.values() if code and code != MIXED_LANGUAGE_SENTINEL}
+        self.assertTrue(expected.issubset(configured))
+
+    def test_language_labels(self) -> None:
+        self.assertEqual(_language_label("ru"), "Русский")
+        self.assertEqual(_language_label("en"), "English")
+        self.assertEqual(_language_label("zh"), "中文")
+        self.assertEqual(_language_label("xx"), "xx")
 
 
 class YoutubeSubtitleTests(unittest.TestCase):
