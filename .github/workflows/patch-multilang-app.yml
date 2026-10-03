@@ -1,0 +1,62 @@
+name: Patch mixed-language UI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/patch-multilang-app.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Patch app UI
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('desktop/app.py')
+          text = path.read_text(encoding='utf-8')
+          text = text.replace('APP_VERSION = "0.3.5"', 'APP_VERSION = "0.3.6"')
+          text = text.replace(
+              'self.language = tk.StringVar(value="Авто")',
+              'self.language = tk.StringVar(value="Авто · микс языков")',
+          )
+
+          old = '''        ttk.Label(right, text="Язык", style="Card.TLabel").pack(anchor="w")
+        ttk.Combobox(right, textvariable=self.language, values=list(LANGUAGES), state="readonly").pack(fill="x", pady=(4, 0))
+
+        checks = ttk.Frame(settings, style="Card.TFrame")'''
+          new = '''        ttk.Label(right, text="Язык", style="Card.TLabel").pack(anchor="w")
+        ttk.Combobox(right, textvariable=self.language, values=list(LANGUAGES), state="readonly").pack(fill="x", pady=(4, 0))
+        ttk.Label(
+            settings,
+            text=(
+                "Авто · микс языков заново определяет язык по речевым фрагментам и сохраняет "
+                "оригинальную речь без перевода."
+            ),
+            style="Muted.Card.TLabel",
+        ).pack(anchor="w", pady=(10, 0))
+
+        checks = ttk.Frame(settings, style="Card.TFrame")'''
+          if old not in text:
+              raise SystemExit('Language UI insertion point not found')
+          text = text.replace(old, new)
+          path.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Commit patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add desktop/app.py
+          git diff --cached --quiet && exit 0
+          git commit -m "Show mixed-language transcription mode in UI"
+          git push
