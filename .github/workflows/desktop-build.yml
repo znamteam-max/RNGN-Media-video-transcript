@@ -82,8 +82,8 @@ jobs:
       - name: Upload installer
         uses: actions/upload-artifact@v4
         with:
-          name: RNGN-Media-Windows-0.3.5
-          path: installer-dist/RNGN-Media-Setup-0.3.5.exe
+          name: RNGN-Media-Windows-0.3.6
+          path: installer-dist/RNGN-Media-Setup-0.3.6.exe
           if-no-files-found: error
           retention-days: 30
 
@@ -93,9 +93,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $tag = "desktop-v0.3.5"
+          $tag = "desktop-v0.3.6"
           gh release view $tag *> $null
           if ($LASTEXITCODE -eq 0) {
             gh release delete $tag --cleanup-tag -y
           }
-          gh release create $tag "installer-dist/RNGN-Media-Setup-0.3.5.exe" --target "$env:GITHUB_SHA" --title "RNGN Media Desktop v0.3.5" --notes "RNGN Media v0.3.5: automatic YouTube PO Token provider for subtitles, plus the existing VK audio and timecode clip fixes."
+          gh release create $tag "installer-dist/RNGN-Media-Setup-0.3.6.exe" --target "$env:GITHUB_SHA" --title "RNGN Media Desktop v0.3.6" --notes "RNGN Media v0.3.6: mixed-language transcription with per-speech-chunk language detection. Adds French, Spanish, Chinese, German, Portuguese, Italian, Japanese, Korean and Arabic language options while preserving original speech without translation."
