@@ -23,11 +23,40 @@ MODEL_PROFILES = {
     "Точная — large-v3 (медленнее на CPU)": {"model": "large-v3", "beam_size": 5},
 }
 
+MIXED_LANGUAGE_SENTINEL = "__mixed__"
 LANGUAGES = {
-    "Авто": None,
+    "Авто · микс языков": MIXED_LANGUAGE_SENTINEL,
+    "Авто · один язык": None,
     "Русский": "ru",
     "English": "en",
+    "Français": "fr",
+    "Español": "es",
+    "中文": "zh",
+    "Deutsch": "de",
+    "Português": "pt",
+    "Italiano": "it",
+    "日本語": "ja",
+    "한국어": "ko",
+    "العربية": "ar",
 }
+
+LANGUAGE_DISPLAY = {
+    "ru": "Русский",
+    "en": "English",
+    "fr": "Français",
+    "es": "Español",
+    "zh": "中文",
+    "de": "Deutsch",
+    "pt": "Português",
+    "it": "Italiano",
+    "ja": "日本語",
+    "ko": "한국어",
+    "ar": "العربية",
+}
+
+MIXED_MAX_SPEECH_SECONDS = 18.0
+MIXED_MIN_SILENCE_MS = 350
+MIXED_SPEECH_PAD_MS = 180
 
 
 @dataclass
@@ -64,6 +93,12 @@ def _readable_timestamp(seconds: float) -> str:
     hours, rem = divmod(total, 3600)
     minutes, secs = divmod(rem, 60)
     return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+
+
+def _language_label(code: str | None) -> str:
+    if not code:
+        return "не определён"
+    return LANGUAGE_DISPLAY.get(code, code)
 
 
 def _cuda_available() -> bool:
@@ -145,12 +180,133 @@ def _format_txt(segments: list[tuple[float, str]], with_timestamps: bool) -> str
     return "\n\n".join(p for p in paragraphs if p).strip() + "\n"
 
 
+def _append_transcribed_segments(
+    segments_iter,
+    *,
+    offset: float,
+    make_srt: bool,
+    segments_text: list[tuple[float, str]],
+    words: list[Word],
+) -> float:
+    last_end = offset
+    for segment in segments_iter:
+        start = offset + float(segment.start)
+        end = offset + float(segment.end)
+        text = (segment.text or "").strip()
+        if text:
+            segments_text.append((start, text))
+        if make_srt and getattr(segment, "words", None):
+            for word in segment.words:
+                wtext = (getattr(word, "word", "") or "").strip()
+                if not wtext:
+                    continue
+                words.append(
+                    Word(
+                        offset + float(word.start),
+                        offset + float(word.end),
+                        wtext,
+                    )
+                )
+        last_end = max(last_end, end)
+    return last_end
+
+
+def _transcribe_mixed_language(
+    model,
+    media_path: Path,
+    *,
+    beam_size: int,
+    make_srt: bool,
+    status: StatusCallback,
+    progress: ProgressCallback,
+    log: LogCallback,
+) -> tuple[list[tuple[float, str]], list[Word], float, dict[str, float]]:
+    from faster_whisper import decode_audio
+    from faster_whisper.vad import VadOptions, get_speech_timestamps
+
+    status("Авто-микс · анализирую речь и смену языков…")
+    audio = decode_audio(str(media_path), sampling_rate=16000)
+    duration = len(audio) / 16000.0
+    if duration <= 0:
+        raise RuntimeError("В файле не найден аудиопоток.")
+
+    speech_chunks = get_speech_timestamps(
+        audio,
+        VadOptions(
+            min_speech_duration_ms=180,
+            max_speech_duration_s=MIXED_MAX_SPEECH_SECONDS,
+            min_silence_duration_ms=MIXED_MIN_SILENCE_MS,
+            speech_pad_ms=MIXED_SPEECH_PAD_MS,
+        ),
+        sampling_rate=16000,
+    )
+    if not speech_chunks:
+        speech_chunks = [{"start": 0, "end": len(audio)}]
+
+    log(
+        "mixed-language mode: "
+        f"speech_chunks={len(speech_chunks)} max_chunk={MIXED_MAX_SPEECH_SECONDS:.0f}s"
+    )
+
+    segments_text: list[tuple[float, str]] = []
+    words: list[Word] = []
+    detected_seconds: dict[str, float] = {}
+
+    for index, chunk in enumerate(speech_chunks, start=1):
+        start_sample = max(0, int(chunk.get("start", 0)))
+        end_sample = min(len(audio), int(chunk.get("end", len(audio))))
+        if end_sample <= start_sample:
+            continue
+
+        offset = start_sample / 16000.0
+        chunk_audio = audio[start_sample:end_sample]
+        chunk_duration = len(chunk_audio) / 16000.0
+
+        segments_iter, info = model.transcribe(
+            chunk_audio,
+            language=None,
+            beam_size=beam_size,
+            vad_filter=False,
+            word_timestamps=make_srt,
+            condition_on_previous_text=False,
+        )
+
+        code = str(getattr(info, "language", "") or "")
+        probability = float(getattr(info, "language_probability", 0.0) or 0.0)
+        if code:
+            detected_seconds[code] = detected_seconds.get(code, 0.0) + chunk_duration
+
+        label = _language_label(code)
+        status(
+            f"Авто-микс · {label} {probability:.0%} · "
+            f"{_readable_timestamp(offset)} · фрагмент {index}/{len(speech_chunks)}"
+        )
+        log(
+            f"language chunk {index}/{len(speech_chunks)} "
+            f"{_readable_timestamp(offset)}-{_readable_timestamp(offset + chunk_duration)}: "
+            f"{code or 'unknown'} ({probability:.1%})"
+        )
+
+        _append_transcribed_segments(
+            segments_iter,
+            offset=offset,
+            make_srt=make_srt,
+            segments_text=segments_text,
+            words=words,
+        )
+        progress(min(96, max(5, int(5 + 91 * end_sample / len(audio)))))
+
+    segments_text.sort(key=lambda item: item[0])
+    words.sort(key=lambda item: (item.start, item.end))
+    return segments_text, words, duration, detected_seconds
+
+
 def transcribe_media(
     media_path: Path,
     output_dir: Path,
     *,
     profile_name: str = "Быстрая — large-v3-turbo (рекомендуется)",
-    language_name: str = "Авто",
+    language_name: str = "Авто · микс языков",
     with_timestamps: bool = False,
     make_srt: bool = True,
     status: StatusCallback = lambda _s: None,
@@ -164,7 +320,8 @@ def transcribe_media(
         raise ValueError(f"Неподдерживаемый формат: {media_path.suffix}")
 
     profile = MODEL_PROFILES.get(profile_name, MODEL_PROFILES["Быстрая — large-v3-turbo (рекомендуется)"])
-    language = LANGUAGES.get(language_name, None)
+    language = LANGUAGES.get(language_name, MIXED_LANGUAGE_SENTINEL)
+    mixed_language = language == MIXED_LANGUAGE_SENTINEL
     output_dir.mkdir(parents=True, exist_ok=True)
     model_dir = _app_data_dir() / "models"
     model_dir.mkdir(parents=True, exist_ok=True)
@@ -189,7 +346,10 @@ def transcribe_media(
                 )
             else:
                 status(f"Подготавливаю {profile['model']} · NVIDIA GPU…")
-            log(f"model={profile['model']} device={device} compute_type={compute_type}")
+            log(
+                f"model={profile['model']} device={device} compute_type={compute_type} "
+                f"language_mode={'mixed' if mixed_language else (language or 'auto-single')}"
+            )
             model = WhisperModel(
                 str(profile["model"]),
                 device=device,
@@ -199,30 +359,52 @@ def transcribe_media(
                 num_workers=1,
             )
             log("Модель загружена. Начинаю распознавание.")
-            status(f"Распознавание · {'NVIDIA GPU' if device == 'cuda' else 'CPU'}…")
-            segments_iter, info = model.transcribe(
-                str(media_path),
-                language=language,
-                beam_size=int(profile["beam_size"]),
-                vad_filter=True,
-                vad_parameters={"min_silence_duration_ms": 700},
-                word_timestamps=make_srt,
-            )
-            duration = float(getattr(info, "duration", 0.0) or 0.0)
-            segments_text: list[tuple[float, str]] = []
-            words: list[Word] = []
-            for segment in segments_iter:
-                text = (segment.text or "").strip()
-                if text:
-                    segments_text.append((float(segment.start), text))
-                if make_srt and getattr(segment, "words", None):
-                    for word in segment.words:
-                        wtext = (getattr(word, "word", "") or "").strip()
-                        if not wtext:
-                            continue
-                        words.append(Word(float(word.start), float(word.end), wtext))
-                if duration > 0:
-                    progress(min(96, max(5, int(5 + 91 * float(segment.end) / duration))))
+
+            if mixed_language:
+                segments_text, words, duration, detected_seconds = _transcribe_mixed_language(
+                    model,
+                    media_path,
+                    beam_size=int(profile["beam_size"]),
+                    make_srt=make_srt,
+                    status=status,
+                    progress=progress,
+                    log=log,
+                )
+                if detected_seconds:
+                    summary = ", ".join(
+                        f"{_language_label(code)} {seconds:.0f}с"
+                        for code, seconds in sorted(
+                            detected_seconds.items(),
+                            key=lambda item: item[1],
+                            reverse=True,
+                        )
+                    )
+                    log(f"detected languages: {summary}")
+            else:
+                status(f"Распознавание · {'NVIDIA GPU' if device == 'cuda' else 'CPU'}…")
+                segments_iter, info = model.transcribe(
+                    str(media_path),
+                    language=language,
+                    beam_size=int(profile["beam_size"]),
+                    vad_filter=True,
+                    vad_parameters={"min_silence_duration_ms": 700},
+                    word_timestamps=make_srt,
+                )
+                duration = float(getattr(info, "duration", 0.0) or 0.0)
+                segments_text = []
+                words = []
+                for segment in segments_iter:
+                    text = (segment.text or "").strip()
+                    if text:
+                        segments_text.append((float(segment.start), text))
+                    if make_srt and getattr(segment, "words", None):
+                        for word in segment.words:
+                            wtext = (getattr(word, "word", "") or "").strip()
+                            if not wtext:
+                                continue
+                            words.append(Word(float(word.start), float(word.end), wtext))
+                    if duration > 0:
+                        progress(min(96, max(5, int(5 + 91 * float(segment.end) / duration))))
 
             if not segments_text:
                 raise RuntimeError("Речь в файле не обнаружена.")
@@ -234,7 +416,6 @@ def transcribe_media(
 
             if make_srt:
                 if not words:
-                    # Fallback to segment timing if word timing is absent.
                     cues = []
                     segs = list(segments_text)
                     for idx, (start, text) in enumerate(segs):
