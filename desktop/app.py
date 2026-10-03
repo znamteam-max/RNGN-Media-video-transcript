@@ -23,7 +23,7 @@ from youtube_subtitles import (
 )
 
 APP_NAME = "RNGN Media"
-APP_VERSION = "0.3.5"
+APP_VERSION = "0.3.6"
 
 BG = "#F3F5F8"
 CARD = "#FFFFFF"
@@ -92,7 +92,7 @@ class App:
 
         self.media_file = tk.StringVar()
         self.model_profile = tk.StringVar(value="Быстрая — large-v3-turbo (рекомендуется)")
-        self.language = tk.StringVar(value="Авто")
+        self.language = tk.StringVar(value="Авто · микс языков")
         self.timestamps = tk.BooleanVar(value=False)
         self.make_srt = tk.BooleanVar(value=True)
 
@@ -376,6 +376,14 @@ class App:
         ttk.Combobox(left, textvariable=self.model_profile, values=list(MODEL_PROFILES), state="readonly").pack(fill="x", pady=(4, 0))
         ttk.Label(right, text="Язык", style="Card.TLabel").pack(anchor="w")
         ttk.Combobox(right, textvariable=self.language, values=list(LANGUAGES), state="readonly").pack(fill="x", pady=(4, 0))
+        ttk.Label(
+            settings,
+            text=(
+                "Авто · микс языков заново определяет язык по речевым фрагментам и сохраняет "
+                "оригинальную речь без перевода."
+            ),
+            style="Muted.Card.TLabel",
+        ).pack(anchor="w", pady=(10, 0))
 
         checks = ttk.Frame(settings, style="Card.TFrame")
         checks.pack(fill="x", pady=(12, 0))
