@@ -19,6 +19,7 @@ class OperationCancelled(RuntimeError):
 
 
 _SELECTED_BROWSER: str | None = None
+_SELECTED_CLIENT: str | None = None
 _PATCH_LOCK = threading.Lock()
 
 
@@ -197,7 +198,7 @@ def analyze_media(
     timeout_seconds: int = 12,
     cancel_event: threading.Event | None = None,
 ) -> core.MediaAnalysis:
-    global _SELECTED_BROWSER
+    global _SELECTED_BROWSER, _SELECTED_CLIENT
 
     url = (url or "").strip()
     if not url:
@@ -218,15 +219,24 @@ def analyze_media(
         "--dump-single-json",
     ]
 
-    attempts: list[tuple[str, list[str], int, str | None]] = [
-        ("обычный клиент", [], timeout_seconds, None),
+    attempts: list[tuple[str, list[str], int, str | None, str | None]] = [
+        ("обычный клиент", [], timeout_seconds, None, None),
     ]
     if platform == "YouTube":
+        # Current yt-dlp guidance recommends mweb together with a PO-token provider.
         attempts.append((
-            "резервный YouTube-клиент",
+            "mweb + PO Token",
+            ["--extractor-args", "youtube:player_client=mweb"],
+            10,
+            None,
+            "mweb",
+        ))
+        attempts.append((
+            "резервный web_embedded",
             ["--extractor-args", "youtube:player_client=web_embedded"],
             8,
             None,
+            "web_embedded",
         ))
         if not core._cookies_args(root):
             sources = _browser_cookie_sources()
@@ -235,16 +245,20 @@ def analyze_media(
             for source, label in sources:
                 attempts.append((
                     f"авторизация через {label}",
-                    ["--cookies-from-browser", source],
+                    [
+                        "--cookies-from-browser", source,
+                        "--extractor-args", "youtube:player_client=default,web_embedded",
+                    ],
                     12,
                     source,
+                    "default,web_embedded",
                 ))
 
     errors: list[str] = []
     had_timeout = False
     auth_seen = False
 
-    for index, (label, extra, timeout, browser_source) in enumerate(attempts, start=1):
+    for index, (label, extra, timeout, browser_source, client) in enumerate(attempts, start=1):
         _raise_if_cancelled(cancel_event)
         status(f"Анализ форматов · попытка {index}/{len(attempts)} · {label}")
         log(f"[analysis] Попытка {index}/{len(attempts)}: {label}; таймаут {timeout} с")
@@ -270,9 +284,12 @@ def analyze_media(
                 info = core._parse_json_output(stdout)
                 choices = core.quality_choices_from_info(info)
                 default_label = core._default_quality_label(choices)
+                _SELECTED_CLIENT = client
                 if browser_source:
                     _SELECTED_BROWSER = browser_source
                     log(f"[auth] Cookies из {browser_source} сработали; использую их для загрузки.")
+                elif client:
+                    log(f"[youtube] Рабочий клиент: {client}")
                 progress(100)
                 status(f"Форматы получены · вариантов: {len(choices)}")
                 return core.MediaAnalysis(
@@ -294,28 +311,41 @@ def analyze_media(
         installed = ", ".join(label for _key, label in _browser_cookie_sources())
         if installed:
             raise RuntimeError(
-                "YouTube требует авторизацию. Программа автоматически попробовала cookies из "
-                f"установленных браузеров ({installed}), но не получила рабочую сессию. "
-                "Войди в YouTube в одном из этих браузеров, обнови страницу YouTube и нажми «Проверить ещё раз»."
+                "YouTube требует авторизацию. Программа автоматически попробовала обычный клиент, "
+                "mweb + PO Token и cookies из установленных браузеров "
+                f"({installed}), но не получила рабочую сессию. Войди в YouTube в одном из этих "
+                "браузеров, обнови страницу YouTube и нажми «Проверить ещё раз»."
             )
         raise RuntimeError(
-            "YouTube требует авторизацию. На этом компьютере не найден поддерживаемый браузер с cookies. "
-            "Установи Chrome, Edge, Brave или Firefox, войди в YouTube и повтори проверку."
+            "YouTube требует авторизацию. Обычный клиент и mweb + PO Token не прошли проверку, "
+            "а браузер с доступными cookies не найден. Войди в YouTube в Chrome, Edge, Brave "
+            "или Firefox и повтори проверку."
         )
 
     raise RuntimeError(core._friendly_analysis_error(errors, had_timeout))
 
 
-def _with_browser_cookies(source: str | None):
+def _with_youtube_auth(source: str | None, client: str | None):
     class Patch:
         def __enter__(self):
-            self.old = core._cookies_args
+            self.old_cookies = core._cookies_args
+            self.old_common = core._common_ytdlp_args
             if source:
                 core._cookies_args = lambda _root: ["--cookies-from-browser", source]
+            if client:
+                old_common = self.old_common
+
+                def patched_common(tools, app_root):
+                    args = old_common(tools, app_root)
+                    args += ["--extractor-args", f"youtube:player_client={client}"]
+                    return args
+
+                core._common_ytdlp_args = patched_common
             return self
 
         def __exit__(self, exc_type, exc, tb):
-            core._cookies_args = self.old
+            core._cookies_args = self.old_cookies
+            core._common_ytdlp_args = self.old_common
             return False
 
     return Patch()
@@ -334,7 +364,7 @@ def download_media(
     clip_end: float | None = None,
     cancel_event: threading.Event | None = None,
 ) -> list[Path]:
-    global _SELECTED_BROWSER
+    global _SELECTED_BROWSER, _SELECTED_CLIENT
 
     _raise_if_cancelled(cancel_event)
     root = app_root or Path(__file__).resolve().parent
@@ -343,7 +373,7 @@ def download_media(
     core._run_streaming = _streaming_runner(cancel_event)
 
     try:
-        if platform != "YouTube" or core._cookies_args(root):
+        if platform != "YouTube":
             return core.download_media(
                 url,
                 output_root,
@@ -356,22 +386,44 @@ def download_media(
                 clip_end=clip_end,
             )
 
+        static_cookies = bool(core._cookies_args(root))
         sources = _browser_cookie_sources()
-        ordered: list[str | None] = [None]
-        if _SELECTED_BROWSER:
-            ordered.append(_SELECTED_BROWSER)
-        ordered += [key for key, _label in sources if key != _SELECTED_BROWSER]
+        attempts: list[tuple[str | None, str | None, str]] = []
+
+        if _SELECTED_BROWSER or _SELECTED_CLIENT:
+            attempts.append((_SELECTED_BROWSER, _SELECTED_CLIENT, "рабочий режим анализа"))
+
+        if static_cookies:
+            attempts.append((None, "default,web_embedded", "cookies.txt + logged-in client"))
+        else:
+            attempts.extend([
+                (None, None, "обычный клиент"),
+                (None, "mweb", "mweb + PO Token"),
+                (None, "web_embedded", "web_embedded"),
+            ])
+            browser_order = list(sources)
+            if _SELECTED_BROWSER:
+                browser_order.sort(key=lambda item: item[0] != _SELECTED_BROWSER)
+            for source, label in browser_order:
+                attempts.append((source, "default,web_embedded", f"cookies из {label}"))
+
+        # Remove exact duplicates while keeping order.
+        unique_attempts: list[tuple[str | None, str | None, str]] = []
+        seen: set[tuple[str | None, str | None]] = set()
+        for source, client, label in attempts:
+            key = (source, client)
+            if key not in seen:
+                seen.add(key)
+                unique_attempts.append((source, client, label))
 
         last_error: Exception | None = None
         with _PATCH_LOCK:
-            for source in ordered:
+            for index, (source, client, label) in enumerate(unique_attempts, start=1):
                 _raise_if_cancelled(cancel_event)
+                status(f"YouTube · попытка {index}/{len(unique_attempts)} · {label}")
+                log(f"[youtube] Загрузка · попытка {index}/{len(unique_attempts)}: {label}")
                 try:
-                    if source:
-                        label = next((label for key, label in sources if key == source), source)
-                        status(f"YouTube требует вход · пробую {label}…")
-                        log(f"[auth] Повтор загрузки с cookies из браузера: {source}")
-                    with _with_browser_cookies(source):
+                    with _with_youtube_auth(source, client):
                         outputs = core.download_media(
                             url,
                             output_root,
@@ -383,24 +435,22 @@ def download_media(
                             clip_start=clip_start,
                             clip_end=clip_end,
                         )
-                    if source:
-                        _SELECTED_BROWSER = source
+                    _SELECTED_BROWSER = source
+                    _SELECTED_CLIENT = client
                     return outputs
                 except OperationCancelled:
                     raise
                 except Exception as exc:
                     last_error = exc
-                    if source is None or _looks_like_auth_error(str(exc)):
-                        continue
-                    log(f"[auth] {source} не дал рабочую YouTube-сессию: {exc}")
+                    log(f"[youtube] Режим «{label}» не сработал: {exc}")
                     continue
 
         installed = ", ".join(label for _key, label in sources)
         suffix = (
-            f" Программа попробовала: {installed}. Войди в YouTube в одном из этих браузеров и повтори."
+            f" Программа также попробовала cookies из: {installed}. Войди в YouTube в одном из этих браузеров и повтори."
             if installed
             else " Войди в YouTube в Chrome, Edge, Brave или Firefox и повтори."
         )
-        raise RuntimeError("YouTube не дал скачать видео без авторизации." + suffix) from last_error
+        raise RuntimeError("YouTube не дал скачать видео с текущего компьютера." + suffix) from last_error
     finally:
         core._run_streaming = original_streaming
