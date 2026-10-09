@@ -36,8 +36,13 @@ class App(base.App):
         toolbar = ttk.Frame(parent, style="Card.TFrame")
         toolbar.pack(fill="x", pady=(0, 7))
 
+        log_frame = ttk.Frame(parent, style="Card.TFrame")
+        log_frame.pack(fill="both", expand=True)
+        scroll = ttk.Scrollbar(log_frame, orient="vertical")
+        scroll.pack(side="right", fill="y")
+
         log = tk.Text(
-            parent,
+            log_frame,
             height=height,
             wrap="word",
             bg=base.DARK,
@@ -48,8 +53,10 @@ class App(base.App):
             padx=10,
             pady=10,
             font=(base.MONO_FONT, 9),
+            yscrollcommand=scroll.set,
         )
-        log.pack(fill="both", expand=True)
+        log.pack(side="left", fill="both", expand=True)
+        scroll.configure(command=log.yview)
         log.configure(state="disabled")
 
         def selected_text() -> str:
