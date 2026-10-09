@@ -88,7 +88,9 @@ jobs:
 
       - name: Core tests
         working-directory: desktop
-        run: python test_core.py
+        run: |
+          python test_core.py
+          python test_v037.py
 
       - name: Build macOS app
         run: |
@@ -98,7 +100,7 @@ jobs:
             --collect-all faster_whisper \
             --collect-all ctranslate2 \
             --collect-all av \
-            desktop/app.py
+            desktop/app_v037.py
 
       - name: Bundle media tools into app
         run: |
@@ -106,8 +108,8 @@ jobs:
           mkdir -p "$APP/Contents/Resources/tools"
           cp -R desktop/tools/. "$APP/Contents/Resources/tools/"
           chmod +x "$APP/Contents/Resources/tools/bin/"*
-          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString 0.3.6" "$APP/Contents/Info.plist" || true
-          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion 0.3.6" "$APP/Contents/Info.plist" || true
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString 0.3.7" "$APP/Contents/Info.plist" || true
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion 0.3.7" "$APP/Contents/Info.plist" || true
 
       - name: Smoke test bundled tools
         run: |
@@ -147,7 +149,7 @@ jobs:
         run: |
           STAGE="dmg-stage"
           APP="dist/RNGN Media.app"
-          DMG="RNGN-Media-macOS-${{ matrix.label }}-0.3.6.dmg"
+          DMG="RNGN-Media-macOS-${{ matrix.label }}-0.3.7.dmg"
           rm -rf "$STAGE"
           mkdir -p "$STAGE"
           cp -R "$APP" "$STAGE/"
@@ -158,8 +160,8 @@ jobs:
       - name: Upload DMG
         uses: actions/upload-artifact@v4
         with:
-          name: RNGN-Media-macOS-${{ matrix.label }}-0.3.6
-          path: RNGN-Media-macOS-${{ matrix.label }}-0.3.6.dmg
+          name: RNGN-Media-macOS-${{ matrix.label }}-0.3.7
+          path: RNGN-Media-macOS-${{ matrix.label }}-0.3.7.dmg
           if-no-files-found: error
           retention-days: 30
 
@@ -170,7 +172,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          pattern: RNGN-Media-macOS-*-0.3.6
+          pattern: RNGN-Media-macOS-*-0.3.7
           merge-multiple: true
           path: release
 
@@ -178,12 +180,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="macos-v0.3.6"
+          TAG="macos-v0.3.7"
           gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 && \
             gh release delete "$TAG" --repo "$GITHUB_REPOSITORY" --cleanup-tag -y || true
 
           gh release create "$TAG" release/*.dmg \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
-            --title "RNGN Media macOS v0.3.6" \
-            --notes "macOS build of RNGN Media v0.3.6 for Apple Silicon and Intel. Adds mixed-language transcription with per-speech-chunk language detection plus French, Spanish, Chinese, German, Portuguese, Italian, Japanese, Korean and Arabic choices. Includes downloader, faster-whisper transcription, YouTube subtitles, yt-dlp, gallery-dl, Deno and bundled FFmpeg. App is ad-hoc signed but not Apple-notarized yet."
+            --title "RNGN Media macOS v0.3.7" \
+            --notes "macOS build of RNGN Media v0.3.7. Adds automatic YouTube browser-cookie fallback, cancellable analysis/download and copyable technical logs. Keeps mixed-language transcription from v0.3.6. App is ad-hoc signed but not Apple-notarized yet."
