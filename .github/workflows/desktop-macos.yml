@@ -12,7 +12,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: rngn-media-macos-main
+  group: rngn-media-macos-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -37,11 +37,17 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Read app version
+        run: |
+          VERSION=$(python -c "import re,pathlib;print(re.search(r'APP_VERSION = \"([^\"]+)\"', pathlib.Path('desktop/rngn/__init__.py').read_text(encoding='utf-8')).group(1))")
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "Building RNGN Media $VERSION"
+
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r desktop/requirements.txt
-          pip install pyinstaller gallery-dl
+          pip install pyinstaller gallery-dl pillow
 
       - name: Install macOS media build tools
         run: |
@@ -88,19 +94,11 @@ jobs:
 
       - name: Core tests
         working-directory: desktop
-        run: |
-          python test_core.py
-          python test_v037.py
+        run: python -m unittest discover -s tests -t . -v
 
       - name: Build macOS app
         run: |
-          pyinstaller --noconfirm --clean --windowed \
-            --name "RNGN Media" \
-            --osx-bundle-identifier "com.rngn.media" \
-            --collect-all faster_whisper \
-            --collect-all ctranslate2 \
-            --collect-all av \
-            desktop/app_v037.py
+          pyinstaller --noconfirm --clean desktop/rngn-media.spec
 
       - name: Bundle media tools into app
         run: |
@@ -108,8 +106,8 @@ jobs:
           mkdir -p "$APP/Contents/Resources/tools"
           cp -R desktop/tools/. "$APP/Contents/Resources/tools/"
           chmod +x "$APP/Contents/Resources/tools/bin/"*
-          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString 0.3.7" "$APP/Contents/Info.plist" || true
-          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion 0.3.7" "$APP/Contents/Info.plist" || true
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$APP/Contents/Info.plist" || true
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $VERSION" "$APP/Contents/Info.plist" || true
 
       - name: Smoke test bundled tools
         run: |
@@ -149,7 +147,7 @@ jobs:
         run: |
           STAGE="dmg-stage"
           APP="dist/RNGN Media.app"
-          DMG="RNGN-Media-macOS-${{ matrix.label }}-0.3.7.dmg"
+          DMG="RNGN-Media-macOS-${{ matrix.label }}-$VERSION.dmg"
           rm -rf "$STAGE"
           mkdir -p "$STAGE"
           cp -R "$APP" "$STAGE/"
@@ -160,19 +158,27 @@ jobs:
       - name: Upload DMG
         uses: actions/upload-artifact@v4
         with:
-          name: RNGN-Media-macOS-${{ matrix.label }}-0.3.7
-          path: RNGN-Media-macOS-${{ matrix.label }}-0.3.7.dmg
+          name: RNGN-Media-macOS-${{ matrix.label }}-${{ env.VERSION }}
+          path: RNGN-Media-macOS-${{ matrix.label }}-${{ env.VERSION }}.dmg
           if-no-files-found: error
           retention-days: 30
 
   publish:
     needs: build
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
 
     steps:
+      - uses: actions/checkout@v4
+
+      - name: Read app version
+        run: |
+          VERSION=$(python3 -c "import re,pathlib;print(re.search(r'APP_VERSION = \"([^\"]+)\"', pathlib.Path('desktop/rngn/__init__.py').read_text(encoding='utf-8')).group(1))")
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
       - uses: actions/download-artifact@v4
         with:
-          pattern: RNGN-Media-macOS-*-0.3.7
+          pattern: RNGN-Media-macOS-*-${{ env.VERSION }}
           merge-multiple: true
           path: release
 
@@ -180,12 +186,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="macos-v0.3.7"
-          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 && \
-            gh release delete "$TAG" --repo "$GITHUB_REPOSITORY" --cleanup-tag -y || true
+          TAG="macos-v$VERSION"
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 &&             gh release delete "$TAG" --repo "$GITHUB_REPOSITORY" --cleanup-tag -y || true
 
-          gh release create "$TAG" release/*.dmg \
-            --repo "$GITHUB_REPOSITORY" \
-            --target "$GITHUB_SHA" \
-            --title "RNGN Media macOS v0.3.7" \
-            --notes "macOS build of RNGN Media v0.3.7. Adds automatic YouTube browser-cookie fallback, cancellable analysis/download and copyable technical logs. Keeps mixed-language transcription from v0.3.6. App is ad-hoc signed but not Apple-notarized yet."
+          gh release create "$TAG" release/*.dmg             --repo "$GITHUB_REPOSITORY"             --target "$GITHUB_SHA"             --title "RNGN Media macOS v$VERSION"             --notes-file desktop/RELEASE_NOTES.md

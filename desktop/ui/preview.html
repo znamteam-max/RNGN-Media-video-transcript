@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>RNGN Media — макет</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div class="app" id="app">
+  <aside class="rail" aria-label="Разделы">
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true">R</div>
+      <div><div class="brand-name">RNGN Media</div><div class="brand-ver" id="brand-ver"></div></div>
+    </div>
+    <nav class="nav" id="nav"></nav>
+    <div class="rail-spacer"></div>
+    <div class="rail-foot">
+      <button class="gpu-pill" id="gpu-pill" data-action="nav" data-page="settings" type="button"></button>
+      <div class="theme-switch" id="theme-switch" role="group" aria-label="Тема"></div>
+    </div>
+  </aside>
+  <main class="main">
+    <div class="scroll" id="scroll">
+      <div class="page" id="page"></div>
+    </div>
+  </main>
+</div>
+<div class="toasts" id="toasts" aria-live="polite"></div>
+<script src="mock.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

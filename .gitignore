@@ -24,3 +24,8 @@ cookies.txt
 logs/
 downloads/
 models/
+desktop/tools/yt-dlp-plugins/
+desktop/tools/bgutil-ytdlp-pot-provider/
+dist/
+build/
+installer-dist/

@@ -12,7 +12,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: rngn-media-desktop-main
+  group: rngn-media-desktop-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -26,6 +26,13 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Read app version
+        shell: pwsh
+        run: |
+          $version = python -c "import re,pathlib;print(re.search(r'APP_VERSION = \"([^\"]+)\"', pathlib.Path('desktop/rngn/__init__.py').read_text(encoding='utf-8')).group(1))"
+          "VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "Building RNGN Media $version"
+
       - name: Install Python build dependencies
         shell: pwsh
         run: |
@@ -37,9 +44,7 @@ jobs:
 
       - name: Core tests
         working-directory: desktop
-        run: |
-          python test_core.py
-          python test_v037.py
+        run: python -m unittest discover -s tests -t . -v
 
       - name: Download media runtime tools
         shell: powershell
@@ -49,7 +54,7 @@ jobs:
       - name: Build desktop application
         shell: pwsh
         run: |
-          pyinstaller --noconfirm --clean --windowed --name "RNGN Media" --collect-all faster_whisper --collect-all ctranslate2 --collect-all av desktop/app_v037.py
+          pyinstaller --noconfirm --clean desktop/rngn-media.spec
           New-Item -ItemType Directory -Force -Path "dist/RNGN Media/tools" | Out-Null
           Copy-Item "desktop/tools/*" "dist/RNGN Media/tools/" -Recurse -Force
 
@@ -57,6 +62,10 @@ jobs:
         shell: pwsh
         run: |
           if (!(Test-Path "dist/RNGN Media/RNGN Media.exe")) { throw "Packaged EXE missing" }
+          foreach ($ui in @("index.html","app.css","app.js")) {
+            if (!(Test-Path "dist/RNGN Media/_internal/ui/$ui")) { throw "UI file missing: $ui" }
+          }
+          if (!(Test-Path "dist/RNGN Media/_internal/webview/lib/Microsoft.Web.WebView2.Core.dll")) { throw "WebView2 bridge missing" }
           $required = @("yt-dlp.exe","gallery-dl.exe","ffmpeg.exe","ffprobe.exe","deno.exe")
           foreach ($name in $required) {
             if (!(Test-Path "dist/RNGN Media/tools/bin/$name")) { throw "Missing tool: $name" }
@@ -79,17 +88,17 @@ jobs:
       - name: Build installer
         shell: pwsh
         run: |
-          $iscc = "C:\\Program Files (x86)\\Inno Setup 6\\ISCC.exe"
-          if (!(Test-Path $iscc)) { $iscc = "C:\\Program Files\\Inno Setup 6\\ISCC.exe" }
+          $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          if (!(Test-Path $iscc)) { $iscc = "C:\Program Files\Inno Setup 6\ISCC.exe" }
           if (!(Test-Path $iscc)) { throw "ISCC.exe not found" }
-          & $iscc "desktop\\rngn-media.iss"
+          & $iscc "/DMyAppVersion=$env:VERSION" "desktop\rngn-media.iss"
           if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed: $LASTEXITCODE" }
 
       - name: Upload installer
         uses: actions/upload-artifact@v4
         with:
-          name: RNGN-Media-Windows-0.3.7
-          path: installer-dist/RNGN-Media-Setup-0.3.7.exe
+          name: RNGN-Media-Windows-${{ env.VERSION }}
+          path: installer-dist/RNGN-Media-Setup-${{ env.VERSION }}.exe
           if-no-files-found: error
           retention-days: 30
 
@@ -99,9 +108,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $tag = "desktop-v0.3.7"
+          $tag = "desktop-v$env:VERSION"
           gh release view $tag *> $null
           if ($LASTEXITCODE -eq 0) {
             gh release delete $tag --cleanup-tag -y
           }
-          gh release create $tag "installer-dist/RNGN-Media-Setup-0.3.7.exe" --target "$env:GITHUB_SHA" --title "RNGN Media Desktop v0.3.7" --notes "RNGN Media v0.3.7: automatic YouTube browser-cookie fallback on new computers, cancellable format analysis/download, and one-click copyable technical logs. Keeps v0.3.6 mixed-language transcription."
+          gh release create $tag "installer-dist/RNGN-Media-Setup-$env:VERSION.exe" --target "$env:GITHUB_SHA" --title "RNGN Media Desktop v$env:VERSION" --notes-file desktop/RELEASE_NOTES.md
