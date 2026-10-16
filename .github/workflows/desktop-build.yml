@@ -29,7 +29,9 @@ jobs:
       - name: Read app version
         shell: pwsh
         run: |
-          $version = python -c "import re,pathlib;print(re.search(r'APP_VERSION = \"([^\"]+)\"', pathlib.Path('desktop/rngn/__init__.py').read_text(encoding='utf-8')).group(1))"
+          $match = Select-String -Path desktop/rngn/__init__.py -Pattern 'APP_VERSION = "([^"]+)"'
+          if (-not $match) { throw "APP_VERSION not found" }
+          $version = $match.Matches[0].Groups[1].Value
           "VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           Write-Host "Building RNGN Media $version"
 
